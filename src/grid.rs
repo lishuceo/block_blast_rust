@@ -1,0 +1,177 @@
+// 网格模块，处理方块放置和消除逻辑
+use macroquad::prelude::*;
+use crate::block::BlockShape;
+
+// 更高效的立体感方块绘制函数
+fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
+    // 亮色和暗色偏移量
+    let light_factor = 0.4;
+    let dark_factor = 0.4;
+    
+    // 边缘厚度
+    let border = size * 0.15;
+    
+    // 创建亮色和暗色
+    let light_color = Color::new(
+        (color.r + light_factor).min(1.0),
+        (color.g + light_factor).min(1.0),
+        (color.b + light_factor).min(1.0),
+        color.a
+    );
+    
+    let dark_color = Color::new(
+        (color.r - dark_factor).max(0.0),
+        (color.g - dark_factor).max(0.0),
+        (color.b - dark_factor).max(0.0),
+        color.a
+    );
+    
+    // 1. 先绘制主体
+    draw_rectangle(x, y, size, size, color);
+    
+    // 2. 绘制四个边（只需要4次绘制调用）
+    // 上边 - 亮色
+    draw_triangle(
+        Vec2::new(x, y), 
+        Vec2::new(x + size, y), 
+        Vec2::new(x + size - border, y + border),
+        light_color
+    );
+    draw_triangle(
+        Vec2::new(x, y), 
+        Vec2::new(x + border, y + border), 
+        Vec2::new(x + size - border, y + border),
+        light_color
+    );
+    
+    // 左边 - 亮色
+    draw_triangle(
+        Vec2::new(x, y), 
+        Vec2::new(x, y + size), 
+        Vec2::new(x + border, y + size - border),
+        light_color
+    );
+    draw_triangle(
+        Vec2::new(x, y), 
+        Vec2::new(x + border, y + border), 
+        Vec2::new(x + border, y + size - border),
+        light_color
+    );
+    
+    // 右边 - 暗色
+    draw_triangle(
+        Vec2::new(x + size, y), 
+        Vec2::new(x + size, y + size), 
+        Vec2::new(x + size - border, y + size - border),
+        dark_color
+    );
+    draw_triangle(
+        Vec2::new(x + size, y), 
+        Vec2::new(x + size - border, y + border), 
+        Vec2::new(x + size - border, y + size - border),
+        dark_color
+    );
+    
+    // 下边 - 暗色
+    draw_triangle(
+        Vec2::new(x, y + size), 
+        Vec2::new(x + size, y + size), 
+        Vec2::new(x + size - border, y + size - border),
+        dark_color
+    );
+    draw_triangle(
+        Vec2::new(x, y + size), 
+        Vec2::new(x + border, y + size - border), 
+        Vec2::new(x + size - border, y + size - border),
+        dark_color
+    );
+}
+
+pub struct Grid {
+    pub cells: [[Option<Color>; 8]; 8],
+}
+
+impl Grid {
+    pub fn new() -> Self {
+        Grid {
+            cells: [[None; 8]; 8],
+        }
+    }
+    
+    // 检查是否可以放置方块
+    pub fn can_place_block(&self, block: &BlockShape, grid_x: i32, grid_y: i32) -> bool {
+        for &(dx, dy) in &block.cells {
+            let x = grid_x + dx;
+            let y = grid_y + dy;
+            
+            // 检查边界
+            if x < 0 || x >= 8 || y < 0 || y >= 8 {
+                return false;
+            }
+            
+            // 检查是否已被占用
+            if self.cells[y as usize][x as usize].is_some() {
+                return false;
+            }
+        }
+        true
+    }
+    
+    // 放置方块
+    pub fn place_block(&mut self, block: &BlockShape, grid_x: i32, grid_y: i32) {
+        for &(dx, dy) in &block.cells {
+            let x = grid_x + dx;
+            let y = grid_y + dy;
+            self.cells[y as usize][x as usize] = Some(block.color);
+        }
+    }
+    
+    // 检查并消除填满的行和列 (只有完全填满才消除)
+    pub fn check_and_clear(&mut self) -> (u32, u32) {
+        let mut rows_cleared = 0;
+        let mut cols_cleared = 0;
+        
+        // 检查行
+        for y in 0..8 {
+            if (0..8).all(|x| self.cells[y][x].is_some()) {
+                // 清除这一行
+                for x in 0..8 {
+                    self.cells[y][x] = None;
+                }
+                rows_cleared += 1;
+            }
+        }
+        
+        // 检查列
+        for x in 0..8 {
+            if (0..8).all(|y| self.cells[y][x].is_some()) {
+                // 清除这一列
+                for y in 0..8 {
+                    self.cells[y][x] = None;
+                }
+                cols_cleared += 1;
+            }
+        }
+        
+        (rows_cleared, cols_cleared)
+    }
+    
+    // 绘制网格和方块
+    pub fn draw(&self, offset_x: f32, offset_y: f32, cell_size: f32) {
+        for y in 0..8 {
+            for x in 0..8 {
+                let pos_x = offset_x + x as f32 * cell_size;
+                let pos_y = offset_y + y as f32 * cell_size;
+                
+                // 绘制网格线 - 改为黑色
+                draw_rectangle_lines(pos_x, pos_y, cell_size, cell_size, 1.0, BLACK);
+                
+                // 绘制已放置的方块
+                if let Some(color) = self.cells[y][x] {
+                    // 使用draw_cube_block函数绘制方块（包含3D效果）
+                    draw_cube_block(pos_x, pos_y, cell_size, color);
+                }
+            }
+        }
+    }
+} 

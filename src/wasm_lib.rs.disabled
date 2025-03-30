@@ -1,0 +1,120 @@
+// wasm_lib.rs - 使用wasm-bindgen的WebAssembly导出
+use wasm_bindgen::prelude::*;
+
+// 导出给JavaScript的函数
+#[wasm_bindgen]
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+// 可以导出复杂的类型
+#[wasm_bindgen]
+pub struct GameState {
+    score: i32,
+    level: i32,
+}
+
+#[wasm_bindgen]
+impl GameState {
+    // 构造函数
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        GameState { score: 0, level: 1 }
+    }
+
+    // 获取分数
+    #[wasm_bindgen(getter)]
+    pub fn score(&self) -> i32 {
+        self.score
+    }
+
+    // 增加分数
+    pub fn add_score(&mut self, points: i32) {
+        self.score += points;
+        // 每1000分升一级
+        self.level = (self.score / 1000) + 1;
+    }
+
+    // 获取当前等级
+    #[wasm_bindgen(getter)]
+    pub fn level(&self) -> i32 {
+        self.level
+    }
+}
+
+// 启动函数
+#[wasm_bindgen(start)]
+pub fn start() {
+    // 初始化时的操作
+    // 在WebAssembly加载后立即执行
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+}
+
+// 绘制测试用的方块
+#[wasm_bindgen]
+pub fn draw_test_blocks(ctx: &web_sys::CanvasRenderingContext2d, width: f64, height: f64) {
+    // 设置背景颜色
+    ctx.set_fill_style(&JsValue::from_str("#222222"));
+    ctx.fill_rect(0.0, 0.0, width, height);
+    
+    // 绘制几个彩色方块
+    let colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF"];
+    let block_size = 50.0;
+    let spacing = 10.0;
+    let start_x = (width - ((block_size + spacing) * colors.len() as f64 - spacing)) / 2.0;
+    let y = height / 2.0 - block_size / 2.0;
+    
+    for (i, color) in colors.iter().enumerate() {
+        let x = start_x + (block_size + spacing) * i as f64;
+        ctx.set_fill_style(&JsValue::from_str(color));
+        ctx.fill_rect(x, y, block_size, block_size);
+    }
+    
+    // 绘制文本
+    ctx.set_font("30px Arial");
+    ctx.set_fill_style(&JsValue::from_str("#FFFFFF"));
+    ctx.set_text_align("center");
+    ctx.fill_text("WASM绑定测试成功!", width / 2.0, height / 2.0 - 50.0).unwrap();
+}
+
+// 添加动画效果
+#[wasm_bindgen]
+pub fn animate_frame(ctx: &web_sys::CanvasRenderingContext2d, width: f64, height: f64, time: f64) {
+    // 清除画布
+    ctx.clear_rect(0.0, 0.0, width, height);
+    
+    // 设置背景
+    ctx.set_fill_style(&JsValue::from_str("#222222"));
+    ctx.fill_rect(0.0, 0.0, width, height);
+    
+    // 计算动画效果
+    let y_offset = (time / 500.0).sin() * 20.0;
+    
+    // 绘制文本
+    ctx.set_font("30px Arial");
+    ctx.set_fill_style(&JsValue::from_str("#FFFFFF"));
+    ctx.set_text_align("center");
+    ctx.fill_text(
+        "WASM绑定测试成功!", 
+        width / 2.0, 
+        height / 2.0 - 50.0 + y_offset
+    ).unwrap();
+    
+    // 绘制彩色方块
+    let colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF"];
+    let block_size = 50.0;
+    let spacing = 10.0;
+    let start_x = (width - ((block_size + spacing) * colors.len() as f64 - spacing)) / 2.0;
+    let base_y = height / 2.0 - block_size / 2.0 + 50.0;
+    
+    for (i, color) in colors.iter().enumerate() {
+        // 每个方块有不同的动画偏移
+        let block_offset = (time / 300.0 + i as f64 * 0.5).sin() * 15.0;
+        let x = start_x + (block_size + spacing) * i as f64;
+        let y = base_y + block_offset;
+        
+        ctx.set_fill_style(&JsValue::from_str(color));
+        ctx.fill_rect(x, y, block_size, block_size);
+    }
+} 
