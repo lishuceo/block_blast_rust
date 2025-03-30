@@ -34,24 +34,24 @@ if exist mq_js_bundle.js (
 )
 
 REM 2.2 检查并复制resource文件夹
-echo test1111
-echo resource文件夹到web目录...
-if exist resource (
-  echo   - 复制resource文件夹内容...
-  xcopy /E /I /Y resource web\resource > nul
-  echo   - resource文件夹复制成功
+echo 2.2 检查resources文件夹...
+if exist resources (
+  echo   - 复制resources文件夹内容...
+  xcopy /E /I /Y resources web\resources > nul
+  echo   - resources文件夹复制成功
 ) else (
-  echo   - 错误：未找到resource文件夹！
-  exit /b 1
+  echo   - 注意：未找到resources文件夹，继续执行...
+  mkdir web\resources
+  echo   - 已创建空的resources文件夹
 )
 
 REM 3. 检查wasm32目标是否已安装
 echo 3. 检查wasm32-unknown-unknown目标...
 rustup target list | findstr wasm32-unknown-unknown >nul
-if %errorlevel% neq 0 (
+if errorlevel 1 (
   echo   - 安装wasm32-unknown-unknown目标...
   rustup target add wasm32-unknown-unknown
-  if %errorlevel% neq 0 (
+  if errorlevel 1 (
     echo   - 错误：安装wasm32-unknown-unknown失败！
     exit /b 1
   )
@@ -62,21 +62,30 @@ if %errorlevel% neq 0 (
 REM 4. 构建WASM文件
 echo 4. 构建WASM文件...
 cargo build --release --target wasm32-unknown-unknown
-if %errorlevel% neq 0 (
+if errorlevel 1 (
   echo   - 错误：构建WASM文件失败！
   exit /b 1
 )
 
 REM 5. 检查并复制WASM文件
 echo 5. 复制WASM文件到web目录...
-if exist target\wasm32-unknown-unknown\release\block_blast_bin.wasm (
-  copy /y target\wasm32-unknown-unknown\release\block_blast_bin.wasm web\block_blast_bin.wasm > nul
+set WASM_FILE=target\wasm32-unknown-unknown\release\block_blast_bin.wasm
+if exist %WASM_FILE% (
+  copy /y %WASM_FILE% web\block_blast_bin.wasm > nul
   echo   - WASM文件复制成功
 ) else (
-  echo   - 错误：未找到WASM文件！
-  exit /b 1
+  set WASM_FILE=target\wasm32-unknown-unknown\release\block_blast.wasm
+  if exist %WASM_FILE% (
+    copy /y %WASM_FILE% web\block_blast_bin.wasm > nul
+    echo   - WASM文件复制成功（使用替代文件名）
+  ) else (
+    echo   - 错误：未找到WASM文件！
+    echo   - 请检查以下文件是否存在：
+    echo     - target\wasm32-unknown-unknown\release\block_blast_bin.wasm
+    echo     - target\wasm32-unknown-unknown\release\block_blast.wasm
+    exit /b 1
+  )
 )
-
 
 REM 6. 创建或复制HTML文件
 echo 6. 准备HTML文件...
@@ -84,43 +93,12 @@ if exist index_template.html (
   echo   - 从模板复制HTML文件
   copy /y index_template.html web\index.html > nul
   echo   - HTML文件复制成功
-) else (
-  echo   - 创建新的HTML文件...
-  (
-  echo ^<!DOCTYPE html^>
-  echo ^<html lang="zh"^>
-  echo ^<head^>
-  echo     ^<meta charset="utf-8"^>
-  echo     ^<title^>方块消除游戏^</title^>
-  echo     ^<style^>
-  echo         html, body, canvas {
-  echo             margin: 0;
-  echo             padding: 0;
-  echo             width: 100%%;
-  echo             height: 100%%;
-  echo             overflow: hidden;
-  echo             position: absolute;
-  echo             background: black;
-  echo             z-index: 0;
-  echo         }
-  echo     ^</style^>
-  echo ^</head^>
-  echo ^<body^>
-  echo     ^<canvas id="glcanvas" tabindex='1'^>^</canvas^>
-  echo     ^<!-- 加载macroquad的JavaScript捆绑包 --^>
-  echo     ^<script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"^>^</script^>
-  echo     ^<script^>
-  echo         // 加载WASM文件
-  echo         load("block_blast.wasm");
-  echo     ^</script^>
-  echo ^</body^>
-  echo ^</html^>
-  ) > web\index.html
-  echo   - HTML文件创建成功
-)
+) 
+
 
 REM 7. 创建简单的Python服务器脚本
-echo 7. 创建服务器脚本...
+
+echo 7.创建服务器脚本...
 (
 echo import http.server, socketserver
 echo import functools
