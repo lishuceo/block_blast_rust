@@ -168,7 +168,9 @@ print(f"请访问 http://localhost:{PORT}/")
 print(f"API数据: http://localhost:{PORT}/api/games")
 print("按Ctrl+C退出服务器")
 
-with socketserver.TCPServer(("0.0.0.0", PORT), GameAPIHandler) as httpd:
+# 使用ThreadingTCPServer替代TCPServer，支持多线程并发处理请求
+with socketserver.ThreadingTCPServer(("0.0.0.0", PORT), GameAPIHandler) as httpd:
+    print("服务器启用多线程模式，支持并发连接")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
