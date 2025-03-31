@@ -33,8 +33,17 @@ if exist mq_js_bundle.js (
   exit /b 1
 )
 
-REM 2.2 检查并复制resource文件夹
-echo 2.2 检查resources文件夹...
+REM 2.2 复制canvas_fixer.js文件
+echo 2.2 复制canvas_fixer.js文件到web目录...
+if exist canvas_fixer.js (
+  copy /y canvas_fixer.js web\canvas_fixer.js > nul
+  echo   - canvas_fixer.js文件复制成功
+) else (
+  echo   - 警告：未找到canvas_fixer.js文件！游戏可能无法正常显示尺寸。
+)
+
+REM 2.3 检查并复制resource文件夹
+echo 2.3 检查resources文件夹...
 if exist resources (
   echo   - 复制resources文件夹内容...
   xcopy /E /I /Y resources web\resources > nul
@@ -46,7 +55,7 @@ if exist resources (
 )
 
 REM 3. 检查wasm32目标是否已安装
-echo 3.检查wasm32-unknown-unknown目标...
+echo 3. 检查wasm32-unknown-unknown目标...
 rustup target list | findstr wasm32-unknown-unknown >nul
 if errorlevel 1 (
   echo   - 安装wasm32-unknown-unknown目标...
@@ -91,21 +100,23 @@ REM 6. 创建或复制HTML文件
 echo 6. 准备HTML文件...
 if exist index_template.html (
   echo   - 从模板复制HTML文件
-  copy /y index_template.html web\index.html > nul
+  copy /y index_template.html web\loader.html > nul
   echo   - HTML文件复制成功
 ) 
-
 
 echo.
 echo ========== 构建完成! ==========
 echo.
 echo WASM文件: web\block_blast_bin.wasm
-echo HTML文件: web\index.html
+echo HTML文件: web\loader.html
 echo.
 echo 运行以下命令启动服务器:
-echo   python serve.py
+echo   python serve.py        - HTTP模式 (端口8000)
+echo   python serve.py --https --cert 您的证书.crt --key 您的私钥.key - HTTPS模式 (端口8443)
+echo   python serve.py --port 9000 - 自定义端口
 echo.
-echo 在浏览器中访问 http://localhost:8000/
+echo 在浏览器中访问:
+echo   http://localhost:8000/loader.html
 echo 如果出现问题，请尝试使用Ctrl+F5强制刷新
 echo.
 
