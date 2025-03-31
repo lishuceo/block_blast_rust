@@ -371,16 +371,6 @@ fn draw_game(game: &Game) {
         let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
         let block_pos_y = blocks_y;
         
-        // 绘制方块背景 - 根据方块尺寸调整背景大小
-        let bg_size = block_size;
-        draw_rectangle(
-            block_pos_x - bg_size/2.0,
-            block_pos_y - bg_size/2.0,
-            bg_size,
-            bg_size,
-            Color::new(0.2, 0.2, 0.2, 1.0)
-        );
-        
         // 绘制方块 - 根据方块尺寸调整单元格大小
         let cell_scale = block_size / (cell_size * 5.0); // 调整单元格大小与方块大小的比例
         for &(dx, dy) in &block.cells {
@@ -635,9 +625,18 @@ fn update_game(game: &mut Game) {
                         let grid_offset_x = (screen_width() - grid_size) / 2.0;
                         let grid_offset_y = 60.0;
                         
-                        // 计算鼠标位置对应的网格坐标
-                        let grid_x = ((pos.x - grid_offset_x) / cell_size).floor() as i32;
-                        let grid_y = ((pos.y - grid_offset_y) / cell_size).floor() as i32;
+                        // 修改：使用与预览相同的坐标计算逻辑
+                        // 计算最小的x和y偏移，即左上角的格子位置
+                        let min_dx = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
+                        let min_dy = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
+                        
+                        // 计算基准点在网格中的位置
+                        let block_base_x = pos.x - cell_size / 2.0;
+                        let block_base_y = pos.y - cell_size / 2.0;
+                        
+                        // 使用左上角的格子位置判断网格位置
+                        let grid_x = ((block_base_x - grid_offset_x) / cell_size).floor() as i32 - min_dx;
+                        let grid_y = ((block_base_y - grid_offset_y) / cell_size).floor() as i32 - min_dy;
                         
                         // 检查并处理方块放置
                         if grid_x >= 0 && grid_x < 8 && grid_y >= 0 && grid_y < 8 {

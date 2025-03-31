@@ -1,0 +1,17 @@
+﻿{
+    "games": [
+        {
+            "name": "Funky Karts", 
+            "url": "https://www.funkykarts.rocks/demo.html"
+        },
+        {
+            "name": "danmaku-wasm", 
+            "url": "http://minigame.spark.xd.com/danmaku-wasm/"
+        },
+        {
+            "name": "方块消除 Block Blast", 
+            "url": "http://minigame.spark.xd.com/block_blast_rust/"
+        }
+    ]
+}
+
