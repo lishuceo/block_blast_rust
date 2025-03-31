@@ -46,7 +46,7 @@ if exist resources (
 )
 
 REM 3. 检查wasm32目标是否已安装
-echo 3. 检查wasm32-unknown-unknown目标...
+echo 3.检查wasm32-unknown-unknown目标...
 rustup target list | findstr wasm32-unknown-unknown >nul
 if errorlevel 1 (
   echo   - 安装wasm32-unknown-unknown目标...
@@ -95,27 +95,6 @@ if exist index_template.html (
   echo   - HTML文件复制成功
 ) 
 
-
-REM 7. 创建简单的Python服务器脚本
-
-echo 7.创建服务器脚本...
-(
-echo import http.server, socketserver
-echo import functools
-echo.
-echo PORT = 8000
-echo Handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='web'^)
-echo.
-echo print(f"启动服务器在端口 {PORT}..."^)
-echo print(f"请访问 http://localhost:{PORT}/"^)
-echo print("按Ctrl+C退出服务器"^)
-echo.
-echo with socketserver.TCPServer(("", PORT^), Handler^) as httpd:
-echo     try:
-echo         httpd.serve_forever(^)
-echo     except KeyboardInterrupt:
-echo         print("\n服务器已停止"^)
-) > serve.py
 
 echo.
 echo ========== 构建完成! ==========
