@@ -160,6 +160,7 @@ struct Game {
     combo: u32,
     drag_block_idx: Option<usize>,    // 当前拖拽的方块索引
     drag_pos: Option<Vec2>,           // 拖拽位置
+    drag_offset: Vec2,                // 新增：拖动偏移量，记录手指与方块的初始偏移
     save_data: save::SaveData,
     easy_mode: bool,                  // 简单模式标志
     simple_block_chance: i32,         // 简单方块生成概率 (0-100)
@@ -178,6 +179,7 @@ impl Game {
             combo: 0,
             drag_block_idx: None,
             drag_pos: None,
+            drag_offset: Vec2::new(0.0, 0.0), // 初始化为零偏移
             save_data: save::SaveData::load(),
             easy_mode: true,          // 默认开启简单模式
             simple_block_chance: 30,  // 简单方块30%概率
@@ -249,7 +251,21 @@ impl Game {
             
             if block_rect.contains(mouse_pos) {
                 self.drag_block_idx = Some(idx);
-                self.drag_pos = Some(mouse_pos);
+                
+                // 计算向上的偏移量 - 使方块在手指上方显示
+                // 核心改动：计算触摸点与方块中心的偏移，然后添加向上的额外偏移
+                let touch_offset_y = -cell_size * 2.0; // 向上偏移2个格子的距离
+                self.drag_offset = Vec2::new(
+                    block_pos_x - mouse_pos.x,  // 水平偏移保持原样，保持触摸点在方块中心下方
+                    block_pos_y - mouse_pos.y + touch_offset_y // 垂直方向添加额外向上偏移
+                );
+                
+                // 设置初始拖动位置，应用偏移
+                let adjusted_pos = Vec2::new(
+                    mouse_pos.x + self.drag_offset.x,
+                    mouse_pos.y + self.drag_offset.y
+                );
+                self.drag_pos = Some(adjusted_pos);
                 break;
             }
         }
@@ -627,15 +643,24 @@ fn update_game(game: &mut Game) {
                 if let Some(block_idx) = game.drag_block_idx {
                     // 检查索引是否有效
                     if block_idx < game.current_blocks.len() {
-                        // 方块直接跟随鼠标位置，不再应用吸附效果
-                        game.drag_pos = Some(mouse_pos);
+                        // 核心改动：应用偏移量使方块位于手指上方
+                        let adjusted_pos = Vec2::new(
+                            mouse_pos.x + game.drag_offset.x,
+                            mouse_pos.y + game.drag_offset.y
+                        );
+                        game.drag_pos = Some(adjusted_pos);
                     } else {
                         // 索引无效，重置拖拽状态
                         game.drag_block_idx = None;
                         game.drag_pos = None;
                     }
                 } else {
-                    game.drag_pos = Some(mouse_pos);
+                    // 这个分支不应该发生，但以防万一也应用偏移
+                    let adjusted_pos = Vec2::new(
+                        mouse_pos.x + game.drag_offset.x,
+                        mouse_pos.y + game.drag_offset.y
+                    );
+                    game.drag_pos = Some(adjusted_pos);
                 }
             }
             
