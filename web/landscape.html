@@ -58,7 +58,7 @@
             background: #000;
         }
         
-        /* 提示信息 */
+        /* 已移除提示信息相关样式
         .instructions {
             position: absolute;
             bottom: 10px;
@@ -72,10 +72,10 @@
             opacity: 0.7;
         }
         
-        /* 桌面设备不显示旋转提示 */
         .desktop-mode .instructions {
             display: none;
         }
+        */
     </style>
 </head>
 <body>
@@ -85,9 +85,11 @@
         </div>
     </div>
     
-    <div class="instructions">横屏模式 - 保持设备竖直</div>
+    <!-- 已移除提示文本元素 -->
     
     <script>
+        console.log("WASM/JIT supported?", typeof WebAssembly !== "undefined"); 
+        
         // 检测是否为移动设备(iOS或Android)
         function isMobileDevice() {
             const userAgent = navigator.userAgent || navigator.vendor || window.opera;
@@ -101,35 +103,43 @@
             return isIOS || isAndroid;
         }
         
+        // 检测当前屏幕是否为横屏
+        function isLandscapeOrientation() {
+            return window.innerWidth > window.innerHeight;
+        }
+        
         // 应用正确的容器样式
         function applyContainerStyle() {
             const container = document.querySelector('.rotated-iframe-container');
             const wrapper = document.querySelector('.landscape-wrapper');
             const isMobile = isMobileDevice();
+            const isLandscape = isLandscapeOrientation();
             
             if (container) {
-                if (isMobile) {
-                    // 移动设备模式 - 应用旋转
+                // 移动设备横屏模式 - 应用旋转
+                if (isMobile && isLandscape) {
                     container.classList.add('mobile');
                     container.classList.remove('desktop');
-                    wrapper.classList.remove('desktop-mode');
                     
                     // 确保容器尺寸适应旋转后的窗口
                     container.style.width = window.innerHeight + 'px';
                     container.style.height = window.innerWidth + 'px';
                     
-                    console.log("应用移动设备旋转模式");
+                    console.log("应用移动设备横屏旋转模式");
                 } else {
-                    // 桌面设备模式 - 不旋转
+                    // 所有其他情况(桌面设备或移动设备竖屏)都不旋转
                     container.classList.add('desktop');
                     container.classList.remove('mobile');
-                    wrapper.classList.add('desktop-mode');
                     
                     // 恢复正常尺寸
                     container.style.width = '100%';
                     container.style.height = '100%';
                     
-                    console.log("应用桌面正常模式");
+                    if (isMobile) {
+                        console.log("移动设备竖屏模式 - 不旋转");
+                    } else {
+                        console.log("应用桌面正常模式");
+                    }
                 }
             }
         }

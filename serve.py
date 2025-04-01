@@ -29,6 +29,15 @@ class GameAPIHandler(http.server.SimpleHTTPRequestHandler):
         kwargs["directory"] = 'web'
         super().__init__(*args, **kwargs)
     
+    # 重写end_headers方法，添加禁用缓存的HTTP头
+    def end_headers(self):
+        # 添加禁用缓存的HTTP头
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        # 调用原始的end_headers方法
+        super().end_headers()
+    
     def do_GET(self):
         # 处理API请求
         if self.path == '/api/games':
