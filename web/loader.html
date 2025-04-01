@@ -37,11 +37,12 @@
             /* 添加iOS安全区域内边距 */
             padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
             transition: transform 0.3s ease;
-            /* 移除固定尺寸，由JS控制 */
+            /* 重要：移除所有尺寸限制，完全由JS控制 */
+            /* 注释掉干扰的尺寸设置 
             width: 100%;
             height: 100%;
             max-width: 100vw;
-            max-height: 100vh;
+            max-height: 100vh; */
         }
         
         /* 横屏模式下旋转画面 */
@@ -77,6 +78,8 @@
             -webkit-touch-callout: none; /* 禁止iOS长按弹出菜单 */
             -webkit-tap-highlight-color: rgba(0,0,0,0); /* 禁止iOS点击高亮 */
         }
+        
+        /* 注释掉所有媒体查询，避免干扰JS缩放 
         
         /* 屏幕适配 - 竖屏模式 */
         @media screen and (max-height: 620px) {
@@ -151,8 +154,9 @@
                 }
             }
         }
+        */
         
-        /* 游戏方向切换按钮 */
+        /* 游戏方向切换按钮 - 已移除
         .orientation-toggle {
             position: fixed;
             bottom: 10px;
@@ -180,6 +184,7 @@
         .orientation-toggle.landscape svg {
             transform: rotate(90deg);
         }
+        */
     </style>
     <!-- 确保在任何其他脚本前加载尺寸修复工具 -->
     <script src="canvas_fixer.js"></script>
@@ -195,12 +200,13 @@
         </div>
     </div>
     
-    <!-- 方向切换按钮 -->
+    <!-- 方向切换按钮 - 已移除
     <button class="orientation-toggle" id="orientationToggle">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
             <path d="M16,17V7H8V17H16M16,3A2,2 0 0,1 18,5V19A2,2 0 0,1 16,21H8A2,2 0 0,1 6,19V5A2,2 0 0,1 8,3H16Z" />
         </svg>
     </button>
+    -->
     
     <!-- 加载macroquad的JavaScript -->
     <script src="mq_js_bundle.js"></script>
@@ -211,7 +217,7 @@
             
             // 获取DOM元素
             const gameWrapper = document.querySelector('.game-wrapper');
-            const orientationToggle = document.getElementById('orientationToggle');
+            // const orientationToggle = document.getElementById('orientationToggle'); // 已移除
             const canvas = document.getElementById('glcanvas');
             
             // 设置canvas初始尺寸 - 保持正确的宽高比
@@ -225,30 +231,13 @@
                 
                 // 初始时使用竖屏模式，无论设备方向如何
                 gameWrapper.classList.remove('landscape');
-                orientationToggle.classList.remove('landscape');
+                // orientationToggle.classList.remove('landscape'); // 已移除
                 
                 // 重置localStorage状态
                 localStorage.removeItem('forceLandscape');
             }
             
-            // 切换方向按钮事件
-            orientationToggle.addEventListener('click', function() {
-                const isLandscapeMode = gameWrapper.classList.contains('landscape');
-                
-                // 切换方向模式
-                if (isLandscapeMode) {
-                    gameWrapper.classList.remove('landscape');
-                    orientationToggle.classList.remove('landscape');
-                } else {
-                    gameWrapper.classList.add('landscape');
-                    orientationToggle.classList.add('landscape');
-                }
-                
-                // 强制重置canvas尺寸
-                if (window.forceCanvasSize) {
-                    window.forceCanvasSize();
-                }
-            });
+            // 切换方向按钮事件已移除
             
             // 检查初始方向
             checkOrientation();

@@ -205,9 +205,18 @@ impl Game {
         let cell_size = grid_size / 8.0;
         
         // 计算可拖拽方块区域的位置
-        let separator_y = 60.0 + grid_size + 45.0; // 标题高度+网格高度+分数显示高度
-        let bottom_area_top = separator_y + 5.0;
-        let bottom_area_height = screen_height() - bottom_area_top;
+        // 使用动态计算的顶部偏移
+        let grid_offset_y = screen_height() * 0.07;
+        
+        // 检测小屏幕
+        let is_small_screen = screen_height() < 600.0;
+        let spacing = if is_small_screen { 20.0 } else { 30.0 };
+        let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
+        let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
+        
+        // 确保底部区域最小高度
+        let min_bottom_height = screen_height() * 0.2;
+        let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
         let blocks_y = bottom_area_top + bottom_area_height / 2.0; // 垂直居中
         
         // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸
@@ -216,7 +225,9 @@ impl Game {
             max_block_size // 对于1-2个最大方块，使用最大尺寸
         } else {
             // 对于更多方块，减小尺寸以适应屏幕
-            (screen_width() * 0.85) / (self.blocks_per_generation as f32 * 1.2) 
+            // 考虑屏幕大小，在小屏幕上进一步减小尺寸
+            let width_factor = if is_small_screen { 0.80 } else { 0.85 };
+            (screen_width() * width_factor) / (self.blocks_per_generation as f32 * 1.2)
         };
         
         let block_margin = block_size * 0.2; // 方块之间的间距根据方块大小缩放
@@ -278,25 +289,28 @@ fn draw_game(game: &Game) {
              25.0, // 减小字体大小
              WHITE);
     
-    // 计算网格大小和位置 - 竖屏模式下网格居中
-    let grid_size = screen_width() * 0.9; // 网格占据屏幕宽度的90%
+    // 绘制游戏内容
+    // 计算网格尺寸和位置
+    let grid_size = screen_width() * 0.9;
     let cell_size = grid_size / 8.0;
     let grid_offset_x = (screen_width() - grid_size) / 2.0;
-    let grid_offset_y = 60.0; // 向下移动一点，给标题留出空间
     
-    // 绘制上方网格区域的背景
+    // 根据屏幕大小动态计算顶部偏移
+    let grid_offset_y = screen_height() * 0.07; // 使用屏幕高度的7%左右，而不是固定的60像素
+    
+    // 绘制游戏网格背景
     draw_rectangle(
-        grid_offset_x - 5.0, 
-        grid_offset_y - 5.0, 
-        grid_size + 10.0, 
-        grid_size + 10.0, 
-        Color::new(0.12, 0.12, 0.14, 1.0)
+        grid_offset_x - 5.0,
+        grid_offset_y - 5.0,
+        grid_size + 10.0,
+        grid_size + 10.0,
+        Color::new(0.1, 0.1, 0.12, 1.0)
     );
     
-    // 使用Grid中的draw方法绘制网格
+    // 绘制游戏网格
     game.grid.draw(grid_offset_x, grid_offset_y, cell_size);
     
-    // 绘制粒子效果
+    // 更新粒子效果系统
     game.effects.draw();
     
     // 显示游戏分数
@@ -319,7 +333,11 @@ fn draw_game(game: &Game) {
     );
     
     // 绘制分隔线
-    let separator_y = score_y + 30.0;
+    // 检测小屏幕并调整间距
+    let is_small_screen = screen_height() < 600.0;
+    let spacing = if is_small_screen { 20.0 } else { 30.0 };
+    let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
+    let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
     draw_line(
         10.0,
         separator_y,
@@ -330,8 +348,10 @@ fn draw_game(game: &Game) {
     );
     
     // 绘制下方区域的背景
-    let bottom_area_top = separator_y + 5.0;
-    let bottom_area_height = screen_height() - bottom_area_top;
+    let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
+    // 确保底部区域至少有屏幕高度的一定比例
+    let min_bottom_height = screen_height() * 0.2; // 至少占屏幕高度的20%
+    let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
     draw_rectangle(
         0.0,
         bottom_area_top,
@@ -344,7 +364,7 @@ fn draw_game(game: &Game) {
     draw_chinese_text(
         "可拖拽方块", 
         20.0, 
-        bottom_area_top + 25.0, 
+        bottom_area_top + (if is_small_screen { 15.0 } else { 25.0 }), 
         20.0, 
         WHITE
     );
@@ -360,7 +380,9 @@ fn draw_game(game: &Game) {
         max_block_size // 对于1-2个最大方块，使用最大尺寸
     } else {
         // 对于更多方块，减小尺寸以适应屏幕
-        (screen_width() * 0.85) / (game.blocks_per_generation as f32 * 1.2) 
+        // 考虑屏幕大小，在小屏幕上进一步减小尺寸
+        let width_factor = if is_small_screen { 0.80 } else { 0.85 };
+        (screen_width() * width_factor) / (game.blocks_per_generation as f32 * 1.2)
     };
     
     let block_margin = block_size * 0.2; // 方块之间的间距根据方块大小缩放
@@ -584,9 +606,13 @@ fn update_game(game: &mut Game) {
             let grid_size = screen_width() * 0.9;
             let cell_size = grid_size / 8.0;
             let grid_offset_x = (screen_width() - grid_size) / 2.0;
-            let grid_offset_y = 60.0;
-            let separator_y = grid_offset_y + grid_size + 45.0;
-            let bottom_area_top = separator_y + 5.0;
+            let grid_offset_y = screen_height() * 0.07;
+            
+            // 检测小屏幕并调整间距
+            let is_small_screen = screen_height() < 600.0;
+            let spacing = if is_small_screen { 20.0 } else { 30.0 };
+            let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
+            let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
             
             // 处理拖拽逻辑
             if is_mouse_button_pressed(MouseButton::Left) {
@@ -623,7 +649,7 @@ fn update_game(game: &mut Game) {
                         let grid_size = screen_width() * 0.9;
                         let cell_size = grid_size / 8.0;
                         let grid_offset_x = (screen_width() - grid_size) / 2.0;
-                        let grid_offset_y = 60.0;
+                        let grid_offset_y = screen_height() * 0.07;
                         
                         // 修改：使用与预览相同的坐标计算逻辑
                         // 计算最小的x和y偏移，即左上角的格子位置
