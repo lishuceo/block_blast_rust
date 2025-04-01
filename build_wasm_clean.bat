@@ -7,17 +7,17 @@ echo === 方块消除游戏 - 纯净WASM构建脚本 ===
 echo =========================================
 echo.
 
-REM 1. 清理旧文件和目录
-echo 1. 清理旧文件...
-if exist web (
-  echo   - 备份web目录...
-  if exist web.bak rmdir /s /q web.bak
-  rename web web.bak
-)
-if exist target\wasm32-unknown-unknown (
-  echo   - 清理旧构建目录...
-  rmdir /s /q target\wasm32-unknown-unknown
-)
+@REM REM 1. 清理旧文件和目录
+@REM echo 1. 清理旧文件...
+@REM if exist web (
+@REM   echo   - 备份web目录...
+@REM   if exist web.bak rmdir /s /q web.bak
+@REM   rename web web.bak
+@REM )
+@REM if exist target\wasm32-unknown-unknown (
+@REM   echo   - 清理旧构建目录...
+@REM   rmdir /s /q target\wasm32-unknown-unknown
+@REM )
 
 REM 2. 创建新目录
 echo 2. 创建目录结构...

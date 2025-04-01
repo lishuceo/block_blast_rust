@@ -241,12 +241,17 @@ impl Game {
             let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
             let block_pos_y = blocks_y;
             
-            // 检查点击是否在方块区域内
+            // 增加容错范围 - 使点击判定区域比实际方块大一些
+            let tolerance_factor = 1.4; // 增加40%的判定区域
+            let touch_width = block_size * tolerance_factor;
+            let touch_height = block_size * tolerance_factor;
+            
+            // 创建扩大后的判定区域，保持中心点不变
             let block_rect = Rect::new(
-                block_pos_x - block_size/2.0, 
-                block_pos_y - block_size/2.0,
-                block_size, 
-                block_size
+                block_pos_x - touch_width/2.0, 
+                block_pos_y - touch_height/2.0,
+                touch_width, 
+                touch_height
             );
             
             if block_rect.contains(mouse_pos) {

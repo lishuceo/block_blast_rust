@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>方块消除游戏 - 横屏模式</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        
+        .landscape-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        
+        .rotated-iframe-container {
+            /* 基础样式，不含旋转变换 */
+            overflow: hidden;
+        }
+        
+        /* 移动设备旋转样式，将通过JS动态应用 */
+        .rotated-iframe-container.mobile {
+            width: 100vh; /* 使用视口高度作为宽度 */
+            height: 100vw; /* 使用视口宽度作为高度 */
+            transform: rotate(-90deg);
+            transform-origin: center center;
+        }
+        
+        /* 桌面设备样式 */
+        .rotated-iframe-container.desktop {
+            width: 100%;
+            height: 100%;
+            transform: none;
+        }
+        
+        #game-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #000;
+        }
+        
+        /* 提示信息 */
+        .instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            z-index: 100;
+            opacity: 0.7;
+        }
+        
+        /* 桌面设备不显示旋转提示 */
+        .desktop-mode .instructions {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="landscape-wrapper">
+        <div class="rotated-iframe-container">
+            <iframe id="game-iframe" src="loader.html" allowfullscreen></iframe>
+        </div>
+    </div>
+    
+    <div class="instructions">横屏模式 - 保持设备竖直</div>
+    
+    <script>
+        // 检测是否为移动设备(iOS或Android)
+        function isMobileDevice() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            
+            // iOS检测
+            const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+            
+            // Android检测
+            const isAndroid = /android/i.test(userAgent);
+            
+            return isIOS || isAndroid;
+        }
+        
+        // 应用正确的容器样式
+        function applyContainerStyle() {
+            const container = document.querySelector('.rotated-iframe-container');
+            const wrapper = document.querySelector('.landscape-wrapper');
+            const isMobile = isMobileDevice();
+            
+            if (container) {
+                if (isMobile) {
+                    // 移动设备模式 - 应用旋转
+                    container.classList.add('mobile');
+                    container.classList.remove('desktop');
+                    wrapper.classList.remove('desktop-mode');
+                    
+                    // 确保容器尺寸适应旋转后的窗口
+                    container.style.width = window.innerHeight + 'px';
+                    container.style.height = window.innerWidth + 'px';
+                    
+                    console.log("应用移动设备旋转模式");
+                } else {
+                    // 桌面设备模式 - 不旋转
+                    container.classList.add('desktop');
+                    container.classList.remove('mobile');
+                    wrapper.classList.add('desktop-mode');
+                    
+                    // 恢复正常尺寸
+                    container.style.width = '100%';
+                    container.style.height = '100%';
+                    
+                    console.log("应用桌面正常模式");
+                }
+            }
+        }
+        
+        // 禁用页面滚动
+        document.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+        }, { passive: false });
+        
+        // 禁用双指缩放
+        document.addEventListener('gesturestart', function(e) {
+            e.preventDefault();
+        });
+        
+        // 尝试进入全屏模式
+        document.addEventListener('click', function() {
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log('无法进入全屏模式:', err);
+                });
+            } else if (document.documentElement.webkitRequestFullscreen) {
+                document.documentElement.webkitRequestFullscreen().catch(err => {
+                    console.log('无法进入WebKit全屏模式:', err);
+                });
+            }
+        }, {once: true});
+        
+        // 页面加载时应用样式
+        window.addEventListener('load', applyContainerStyle);
+        
+        // 屏幕尺寸变化时重新应用样式
+        window.addEventListener('resize', applyContainerStyle);
+        window.addEventListener('orientationchange', function() {
+            setTimeout(applyContainerStyle, 300);
+        });
+    </script>
+</body>
+</html> 
