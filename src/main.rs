@@ -491,14 +491,6 @@ fn draw_game(game: &Game) {
                      25.0, 
                      Color::new(1.0, 0.8, 0.2, 1.0));
             
-            // 绘制游戏说明
-            let desc_text = "将方块拖放到网格中，填满行或列即可消除";
-            draw_chinese_text(desc_text, 
-                     screen_width() / 2.0 - 180.0, 
-                     screen_height() / 2.0 + 40.0, 
-                     20.0, 
-                     WHITE);
-            
             // 绘制最高分
             draw_chinese_text(&format!("最高分: {}", game.save_data.high_score), 
                      screen_width() / 2.0 - 80.0, 
