@@ -1,5 +1,8 @@
 # block_blast_rust
 This is a cross-platform mini-game inspired by Block Blast, built with Cursor and Rust.
+
+Demo : https://minigame.spark.xd.com/block_blast_rust/
+
 # 方块消除游戏 - 纯净WASM版本
 
 这是方块消除游戏的纯净WebAssembly版本，完全不依赖wasm-bindgen。
