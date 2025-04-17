@@ -117,6 +117,58 @@ impl Grid {
         true
     }
     
+    // 检查是否可以放置方块（带容错范围）
+    pub fn can_place_block_with_tolerance(&self, block: &BlockShape, grid_x: i32, grid_y: i32, tolerance: i32) -> (bool, i32, i32) {
+        // 首先尝试在原位置放置
+        if self.can_place_block(block, grid_x, grid_y) {
+            return (true, grid_x, grid_y);
+        }
+        
+        // 如果原位置不行，先尝试上下左右四个方向
+        let directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]; // 上、下、左、右
+        for &(dx, dy) in &directions {
+            let new_x = grid_x + dx;
+            let new_y = grid_y + dy;
+            
+            if self.can_place_block(block, new_x, new_y) {
+                return (true, new_x, new_y);
+            }
+        }
+        
+        // 如果上下左右都不行，再尝试对角线方向
+        let diagonals = [(-1, -1), (1, -1), (-1, 1), (1, 1)]; // 左上、右上、左下、右下
+        for &(dx, dy) in &diagonals {
+            let new_x = grid_x + dx;
+            let new_y = grid_y + dy;
+            
+            if self.can_place_block(block, new_x, new_y) {
+                return (true, new_x, new_y);
+            }
+        }
+        
+        // 如果容错范围大于1，尝试更远的位置
+        if tolerance > 1 {
+            for dy in -tolerance..=tolerance {
+                for dx in -tolerance..=tolerance {
+                    // 跳过已经检查过的位置（原始位置、上下左右和对角线）
+                    if (dx.abs() <= 1 && dy.abs() <= 1) || (dx == 0 && dy == 0) {
+                        continue;
+                    }
+                    
+                    let new_x = grid_x + dx;
+                    let new_y = grid_y + dy;
+                    
+                    if self.can_place_block(block, new_x, new_y) {
+                        return (true, new_x, new_y);
+                    }
+                }
+            }
+        }
+        
+        // 如果所有位置都不行，返回原始位置和失败标志
+        (false, grid_x, grid_y)
+    }
+    
     // 放置方块
     pub fn place_block(&mut self, block: &BlockShape, grid_x: i32, grid_y: i32) {
         for &(dx, dy) in &block.cells {

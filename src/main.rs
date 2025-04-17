@@ -236,7 +236,7 @@ impl Game {
         let total_width = block_size * self.current_blocks.len() as f32 + block_margin * (self.current_blocks.len() as f32 - 1.0);
         let start_x = (screen_width() - total_width) / 2.0;
         
-        for (idx, _block) in self.current_blocks.iter().enumerate() {
+        for (idx, block) in self.current_blocks.iter().enumerate() {
             // 计算每个方块的中心位置
             let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
             let block_pos_y = blocks_y;
@@ -257,12 +257,11 @@ impl Game {
             if block_rect.contains(mouse_pos) {
                 self.drag_block_idx = Some(idx);
                 
-                // 计算向上的偏移量 - 使方块在手指上方显示
-                // 核心改动：计算触摸点与方块中心的偏移，然后添加向上的额外偏移
+                // 计算向上的偏移量 - 使方块在手指上方显示，但保持中心点对齐
                 let touch_offset_y = -cell_size * 2.0; // 向上偏移2个格子的距离
                 self.drag_offset = Vec2::new(
-                    block_pos_x - mouse_pos.x,  // 水平偏移保持原样，保持触摸点在方块中心下方
-                    block_pos_y - mouse_pos.y + touch_offset_y // 垂直方向添加额外向上偏移
+                    0.0,  // 不再需要水平偏移，因为我们使用中心点
+                    touch_offset_y // 只保留垂直方向的额外偏移
                 );
                 
                 // 设置初始拖动位置，应用偏移
@@ -430,35 +429,69 @@ fn draw_game(game: &Game) {
         if block_idx < game.current_blocks.len() {
             let block = &game.current_blocks[block_idx];
             
-            // 修改：使用左上角第一个格子作为基准点
-            // 计算最小的x和y偏移，即左上角的格子位置
-            let min_dx = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
-            let min_dy = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
+            // 找到最左上角的cell（最小x和y坐标的cell）
+            let mut min_dx = i32::MAX;
+            let mut min_dy = i32::MAX;
+            for &(dx, dy) in &block.cells {
+                if dx < min_dx {
+                    min_dx = dx;
+                }
+                if dy < min_dy {
+                    min_dy = dy;
+                }
+            }
             
-            // 计算基准点在网格中的位置
-            let block_base_x = pos.x - cell_size / 2.0;
-            let block_base_y = pos.y - cell_size / 2.0;
+            // 计算方块的几何中心
+            let min_dx_all = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
+            let max_dx_all = block.cells.iter().map(|(dx, _)| *dx).max().unwrap_or(0);
+            let min_dy_all = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
+            let max_dy_all = block.cells.iter().map(|(_, dy)| *dy).max().unwrap_or(0);
             
-            // 使用左上角的格子位置判断网格位置
-            let grid_x = ((block_base_x - grid_offset_x) / cell_size).floor() as i32 - min_dx;
-            let grid_y = ((block_base_y - grid_offset_y) / cell_size).floor() as i32 - min_dy;
+            let center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
+            let center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
+            
+            // 计算左上角cell在网格中的坐标
+            // pos现在是左上角cell的中心点
+            let grid_top_left_x = ((pos.x - grid_offset_x) / cell_size).floor();
+            let grid_top_left_y = ((pos.y - grid_offset_y) / cell_size).floor();
+            
+            // 计算网格坐标（以左上角cell为基准）
+            let grid_x = grid_top_left_x as i32 - min_dx;
+            let grid_y = grid_top_left_y as i32 - min_dy;
             
             // 判断是否在有效网格范围内
-            let is_valid_pos = grid_x >= 0 && grid_x < 8 && grid_y >= 0 && grid_y < 8;
-            let can_place = is_valid_pos && game.grid.can_place_block(block, grid_x, grid_y);
+            let is_valid_pos = grid_x >= -1 && grid_x < 9 && grid_y >= -1 && grid_y < 9; // 扩大检测范围
+            
+            // 使用容错功能检查放置 - 仅用于预览
+            let (can_place, corrected_x, corrected_y) = if is_valid_pos {
+                game.grid.can_place_block_with_tolerance(block, grid_x, grid_y, 1) // 1格容错距离
+            } else {
+                (false, grid_x, grid_y)
+            };
             
             // 为所有单元格绘制预览
             for &(dx, dy) in &block.cells {
-                let preview_x = grid_offset_x + (grid_x + dx) as f32 * cell_size;
-                let preview_y = grid_offset_y + (grid_y + dy) as f32 * cell_size;
+                // 使用校正后的坐标绘制预览
+                let preview_x = grid_offset_x + (corrected_x + dx) as f32 * cell_size;
+                let preview_y = grid_offset_y + (corrected_y + dy) as f32 * cell_size;
                 
                 // 仅当预览位置在有效范围内时才绘制
-                if (grid_x + dx) >= 0 && (grid_x + dx) < 8 && (grid_y + dy) >= 0 && (grid_y + dy) < 8 {
+                if (corrected_x + dx) >= 0 && (corrected_x + dx) < 8 && (corrected_y + dy) >= 0 && (corrected_y + dy) < 8 {
                     // 根据能否放置绘制不同颜色
                     if can_place {
                         // 半透明绿色
                         draw_rectangle(preview_x, preview_y, cell_size, cell_size, 
                                        Color::new(0.2, 0.8, 0.2, 0.4));
+                        
+                        // 如果是校正后的位置，添加闪烁边框提示用户
+                        if corrected_x != grid_x || corrected_y != grid_y {
+                            let pulse = (get_time() * 5.0).sin() * 0.5 + 0.5;
+                            draw_rectangle_lines(
+                                preview_x, preview_y, cell_size, cell_size,
+                                2.0,
+                                Color::new(1.0, 1.0, 1.0, 0.5 + 0.3 * pulse as f32)
+                            );
+                        }
                     } else {
                         // 半透明红色
                         draw_rectangle(preview_x, preview_y, cell_size, cell_size, 
@@ -467,12 +500,53 @@ fn draw_game(game: &Game) {
                 }
             }
             
-            // 在网格上拖动时使用标准大小
+            // 绘制调试圆圈 - 显示关键点位置（移至方块绘制之后，确保显示在方块上方）
+            let debug_circle_size = cell_size * 0.3; // 调试圆圈大小
+            
+            // 原始位置 - 红色圆圈（显示左上角cell的位置）
+            let orig_center_x = grid_offset_x + (grid_top_left_x) * cell_size;
+            let orig_center_y = grid_offset_y + (grid_top_left_y) * cell_size;
+            draw_circle(orig_center_x, orig_center_y, debug_circle_size, Color::new(1.0, 0.0, 0.0, 0.8));
+            draw_text(&format!("TL({:.1},{:.1})", grid_top_left_x, grid_top_left_y), 
+                     orig_center_x + debug_circle_size, orig_center_y - debug_circle_size, 
+                     15.0, WHITE);
+            
+            // 校正后的位置 - 绿色圆圈
+            let corrected_center_x = grid_offset_x + corrected_x as f32 * cell_size;
+            let corrected_center_y = grid_offset_y + corrected_y as f32 * cell_size;
+            draw_circle(corrected_center_x, corrected_center_y, debug_circle_size, Color::new(0.0, 1.0, 0.0, 0.8));
+            draw_text(&format!("Cr({},{})", corrected_x, corrected_y), 
+                     corrected_center_x + debug_circle_size, corrected_center_y - debug_circle_size, 
+                     15.0, WHITE);
+            
+            // 在网格上拖动时绘制方块
             for &(dx, dy) in &block.cells {
-                let x = pos.x + dx as f32 * cell_size - min_dx as f32 * cell_size;
-                let y = pos.y + dy as f32 * cell_size - min_dy as f32 * cell_size;
+                // 使用实际鼠标位置(pos)来绘制拖动中的方块
+                let rel_dx = dx - min_dx; // 相对于左上角的偏移
+                let rel_dy = dy - min_dy;
+                
+                // 计算每个方块单元的实际位置
+                let x = pos.x + rel_dx as f32 * cell_size;
+                let y = pos.y + rel_dy as f32 * cell_size;
+                
+                // 绘制立体方块
                 draw_cube_block(x - cell_size/2.0, y - cell_size/2.0, cell_size, block.color);
             }
+            
+            // 鼠标位置 - 蓝色圆圈
+            draw_circle(pos.x, pos.y, debug_circle_size, Color::new(0.0, 0.5, 1.0, 0.8));
+            draw_text("Mouse", pos.x + debug_circle_size, pos.y - debug_circle_size, 15.0, WHITE);
+            
+            // 方块实际中心 - 黄色圆圈
+            draw_circle(pos.x, pos.y, debug_circle_size * 0.5, Color::new(1.0, 1.0, 0.0, 0.8));
+            
+            // 在屏幕顶部显示详细数据
+            let debug_text = format!(
+                "左上角: ({},{}) | 网格坐标: ({},{}) | 校正坐标: ({},{})", 
+                min_dx, min_dy, grid_x, grid_y, corrected_x, corrected_y
+            );
+            draw_rectangle(0.0, 0.0, screen_width(), 25.0, Color::new(0.0, 0.0, 0.0, 0.7));
+            draw_text(&debug_text, 10.0, 20.0, 20.0, WHITE);
         }
     }
     
@@ -640,24 +714,54 @@ fn update_game(game: &mut Game) {
                 if let Some(block_idx) = game.drag_block_idx {
                     // 检查索引是否有效
                     if block_idx < game.current_blocks.len() {
+                        let block = &game.current_blocks[block_idx];
+                        
+                        // 找到最左上角的cell（最小x和y坐标的cell）
+                        let mut min_dx = i32::MAX;
+                        let mut min_dy = i32::MAX;
+                        for &(dx, dy) in &block.cells {
+                            if dx < min_dx {
+                                min_dx = dx;
+                            }
+                            if dy < min_dy {
+                                min_dy = dy;
+                            }
+                        }
+                        
                         // 核心改动：应用偏移量使方块位于手指上方
                         let adjusted_pos = Vec2::new(
                             mouse_pos.x + game.drag_offset.x,
                             mouse_pos.y + game.drag_offset.y
                         );
-                        game.drag_pos = Some(adjusted_pos);
+                        
+                        // 计算方块左上角cell的中心点
+                        // 先计算方块几何中心
+                        let min_dx_all = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
+                        let max_dx_all = block.cells.iter().map(|(dx, _)| *dx).max().unwrap_or(0);
+                        let min_dy_all = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
+                        let max_dy_all = block.cells.iter().map(|(_, dy)| *dy).max().unwrap_or(0);
+                        let center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
+                        let center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
+                        
+                        // 从方块中心到左上角cell的偏移
+                        let offset_to_top_left_x = (min_dx as f32 - center_x) * cell_size;
+                        let offset_to_top_left_y = (min_dy as f32 - center_y) * cell_size;
+                        
+                        // 计算左上角cell的中心点坐标
+                        let top_left_cell_center = Vec2::new(
+                            adjusted_pos.x + offset_to_top_left_x,
+                            adjusted_pos.y + offset_to_top_left_y
+                        );
+                        
+                        game.drag_pos = Some(top_left_cell_center);
                     } else {
                         // 索引无效，重置拖拽状态
                         game.drag_block_idx = None;
                         game.drag_pos = None;
                     }
                 } else {
-                    // 这个分支不应该发生，但以防万一也应用偏移
-                    let adjusted_pos = Vec2::new(
-                        mouse_pos.x + game.drag_offset.x,
-                        mouse_pos.y + game.drag_offset.y
-                    );
-                    game.drag_pos = Some(adjusted_pos);
+                    // 这个分支不应该发生，但以防万一
+                    game.drag_pos = None;
                 }
             }
             
@@ -673,24 +777,46 @@ fn update_game(game: &mut Game) {
                         let grid_offset_x = (screen_width() - grid_size) / 2.0;
                         let grid_offset_y = screen_height() * 0.07;
                         
-                        // 修改：使用与预览相同的坐标计算逻辑
-                        // 计算最小的x和y偏移，即左上角的格子位置
-                        let min_dx = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
-                        let min_dy = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
+                        // 找到最左上角的cell（最小x和y坐标的cell）
+                        let mut min_dx = i32::MAX;
+                        let mut min_dy = i32::MAX;
+                        for &(dx, dy) in &block.cells {
+                            if dx < min_dx {
+                                min_dx = dx;
+                            }
+                            if dy < min_dy {
+                                min_dy = dy;
+                            }
+                        }
                         
-                        // 计算基准点在网格中的位置
-                        let block_base_x = pos.x - cell_size / 2.0;
-                        let block_base_y = pos.y - cell_size / 2.0;
+                        // 计算左上角cell在网格中的坐标
+                        // pos现在是左上角cell的中心点
+                        let grid_top_left_x = ((pos.x - grid_offset_x) / cell_size).floor();
+                        let grid_top_left_y = ((pos.y - grid_offset_y) / cell_size).floor();
                         
-                        // 使用左上角的格子位置判断网格位置
-                        let grid_x = ((block_base_x - grid_offset_x) / cell_size).floor() as i32 - min_dx;
-                        let grid_y = ((block_base_y - grid_offset_y) / cell_size).floor() as i32 - min_dy;
+                        // 计算网格坐标（以左上角cell为基准）
+                        let grid_x = grid_top_left_x as i32 - min_dx;
+                        let grid_y = grid_top_left_y as i32 - min_dy;
                         
-                        // 检查并处理方块放置
-                        if grid_x >= 0 && grid_x < 8 && grid_y >= 0 && grid_y < 8 {
-                            if game.grid.can_place_block(block, grid_x, grid_y) {
-                                // 执行放置
-                                game.grid.place_block(block, grid_x, grid_y);
+                        // 检查并处理方块放置 - 使用容错版本
+                        // 先判断是否在扩展的有效范围内
+                        let is_near_valid = grid_x >= -1 && grid_x < 9 && grid_y >= -1 && grid_y < 9;
+                        
+                        if is_near_valid {
+                            // 使用容错功能找到合适的放置位置
+                            let (can_place, corrected_x, corrected_y) = 
+                                game.grid.can_place_block_with_tolerance(block, grid_x, grid_y, 1);
+                            
+                            if can_place {
+                                // 执行放置 - 使用校正后的位置
+                                game.grid.place_block(block, corrected_x, corrected_y);
+                                
+                                // 如果位置被校正了，播放提示音效或视觉效果
+                                if corrected_x != grid_x || corrected_y != grid_y {
+                                    println!("位置已自动校正: 从({},{})到({},{})", 
+                                             grid_x, grid_y, corrected_x, corrected_y);
+                                    // TODO: 添加声音或特效提示
+                                }
                                 
                                 // 首先记录当前哪些行和列是满的（将被消除）
                                 let mut filled_rows = [false; 8];

@@ -100,7 +100,7 @@ REM 6. 创建或复制HTML文件
 echo 6. 准备HTML文件...
 if exist index_template.html (
   echo   - 从模板复制HTML文件
-  copy /y index_template.html web\loader.html > nul
+  copy /y index_template.html web\index.html > nul
   echo   - HTML文件复制成功
 ) 
 
@@ -108,7 +108,7 @@ echo.
 echo ========== 构建完成! ==========
 echo.
 echo WASM文件: web\block_blast_bin.wasm
-echo HTML文件: web\loader.html
+echo HTML文件: web\index.html
 echo.
 echo 运行以下命令启动服务器:
 echo   python serve.py        - HTTP模式 (端口8000)
@@ -116,7 +116,7 @@ echo   python serve.py --https --cert 您的证书.crt --key 您的私钥.key - 
 echo   python serve.py --port 9000 - 自定义端口
 echo.
 echo 在浏览器中访问:
-echo   http://localhost:8000/loader.html
+echo   http://localhost:8000/index.html
 echo 如果出现问题，请尝试使用Ctrl+F5强制刷新
 echo.
 
