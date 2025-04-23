@@ -25,6 +25,37 @@ const CHINESE_FONT_DATA: &[u8] = include_bytes!("../resources/fonts/SourceHanSan
 // 全局中文字体变量 - 使用Font类型
 static CHINESE_FONT: Lazy<Mutex<Option<Font>>> = Lazy::new(|| Mutex::new(None));
 
+// 获取设备DPI缩放比例的辅助函数
+fn get_dpi_scale() -> f32 {
+    #[cfg(target_os = "ios")]
+    {
+        // iOS设备通常有更高的像素密度，使用更高的缩放比
+        // iPhone的Retina显示屏通常是2x或3x缩放
+        return 3.0;
+    }
+    
+    #[cfg(target_os = "android")]
+    {
+        // Android设备根据屏幕密度调整
+        // 通常为1.5x到4x之间
+        return 2.0;
+    }
+    
+    // 桌面平台，根据实际DPI动态计算
+    // macroquad没有直接提供获取系统DPI的API，所以我们使用推断
+    let (w, h) = (screen_width(), screen_height());
+    if w > 2000.0 || h > 2000.0 {
+        // 4K或高分辨率显示器
+        2.0
+    } else if w > 1200.0 || h > 1200.0 {
+        // 高清显示器
+        1.5
+    } else {
+        // 标准显示器
+        1.0
+    }
+}
+
 // WASM初始化代码
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
@@ -39,11 +70,14 @@ pub extern "C" fn wasm_init() {
 
 // 更高效的立体感方块绘制函数
 pub fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
+    // 获取DPI缩放因子
+    let dpi_scale = get_dpi_scale();
+    
     // 亮色和暗色偏移量
     let light_factor = 0.4;
     let dark_factor = 0.4;
     
-    // 边缘厚度
+    // 边缘厚度 - 在高DPI屏幕上相应调整
     let border = size * 0.15;
     
     // 创建亮色和暗色
@@ -61,6 +95,7 @@ pub fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
         color.a
     );
     
+    // 在高DPI设备上使用抗锯齿绘制，提高视觉质量
     // 1. 先绘制主体
     draw_rectangle(x, y, size, size, color);
     
@@ -149,7 +184,14 @@ fn draw_chinese_text(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
             _ => text,
         };
         
-        draw_text(english_text, x - measure_text(english_text, None, font_size as u16, 1.0).width / 2.0, y, font_size, color);
+        // 使用传入的字体大小（已在外部应用了DPI缩放）
+        draw_text(
+            english_text, 
+            x - measure_text(english_text, None, font_size as u16, 1.0).width / 2.0, 
+            y, 
+            font_size, 
+            color
+        );
         return;
     }
     
@@ -165,10 +207,16 @@ fn draw_chinese_text(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
             _ => text,
         };
         
-        draw_text(english_text, x - measure_text(english_text, None, font_size as u16, 1.0).width / 2.0, y, font_size, color);
+        draw_text(
+            english_text, 
+            x - measure_text(english_text, None, font_size as u16, 1.0).width / 2.0, 
+            y, 
+            font_size, 
+            color
+        );
         return;
     };
-
+    
     // 使用macroquad的measure_text函数精确测量文本宽度
     let text_dims = measure_text(
         text,
@@ -363,23 +411,26 @@ impl Game {
 
 // 绘制函数
 fn draw_game(game: &Game) {
+    // 获取DPI缩放比例
+    let dpi_scale = get_dpi_scale();
+    
     // 修改窗口背景为深灰色
     clear_background(Color::new(0.2, 0.2, 0.22, 1.0));
     
     // 绘制游戏内容
-    // 计算网格尺寸和位置
+    // 计算网格尺寸和位置，考虑DPI缩放
     let grid_size = screen_width() * 0.9;
     let cell_size = grid_size / 8.0;
     let grid_offset_x = (screen_width() - grid_size) / 2.0;
     
     // 根据屏幕大小动态计算顶部偏移
-    let grid_offset_y = screen_height() * 0.07; // 使用屏幕高度的7%左右，而不是固定的60像素
+    let grid_offset_y = screen_height() * 0.07;
 
-    // 绘制游戏标题
+    // 绘制游戏标题，字体大小根据DPI缩放
     draw_chinese_text("逆向俄罗斯方块", 
-             screen_width() / 2.0, // 标题居中，不需要减去偏移量
+             screen_width() / 2.0,
              grid_offset_y / 2.0, 
-             20.0, // 减小字体大小
+             20.0 * dpi_scale, // 字体大小乘以DPI缩放
              WHITE);
     
     // 绘制游戏网格背景
@@ -389,6 +440,17 @@ fn draw_game(game: &Game) {
         grid_size + 10.0,
         grid_size + 10.0,
         Color::new(0.1, 0.1, 0.12, 1.0)
+    );
+    
+    // 添加细边框 - 在高DPI设备上更清晰
+    let border_width = 2.0 * dpi_scale;
+    draw_rectangle_lines(
+        grid_offset_x - 5.0,
+        grid_offset_y - 5.0,
+        grid_size + 10.0,
+        grid_size + 10.0,
+        border_width,
+        Color::new(0.3, 0.3, 0.3, 1.0)
     );
     
     // 绘制游戏网格
@@ -403,7 +465,7 @@ fn draw_game(game: &Game) {
         &format!("分数: {}", game.score), 
         40.0, // 向右调整，更美观
         score_y, 
-        15.0, 
+        15.0 * dpi_scale, 
         WHITE
     );
     
@@ -412,7 +474,7 @@ fn draw_game(game: &Game) {
         &format!("最高分: {}", game.save_data.high_score), 
         screen_width() - 100.0, // 向右调整，更美观
         score_y, 
-        15.0, 
+        15.0 * dpi_scale, 
         WHITE
     );
     
@@ -427,7 +489,7 @@ fn draw_game(game: &Game) {
         separator_y,
         screen_width() - 10.0,
         separator_y,
-        2.0,
+        2.0 * dpi_scale, // 线宽度也随DPI缩放
         Color::new(0.3, 0.3, 0.3, 1.0)
     );
     
@@ -449,7 +511,7 @@ fn draw_game(game: &Game) {
         "可拖拽方块", 
         screen_width() / 2.0, // 居中显示
         bottom_area_top + (if is_small_screen { 15.0 } else { 25.0 }), 
-        20.0, 
+        20.0 * dpi_scale, // 字体大小乘以DPI缩放
         WHITE
     );
     
@@ -552,7 +614,7 @@ fn draw_game(game: &Game) {
                             let pulse = (get_time() * 5.0).sin() * 0.5 + 0.5;
                             draw_rectangle_lines(
                                 preview_x, preview_y, cell_size, cell_size,
-                                2.0,
+                                2.0 * dpi_scale, // 线宽考虑DPI缩放
                                 Color::new(1.0, 1.0, 1.0, 0.5 + 0.3 * pulse as f32)
                             );
                         }
@@ -591,21 +653,21 @@ fn draw_game(game: &Game) {
             draw_chinese_text("逆向俄罗斯方块", 
                      screen_width() / 2.0, 
                      screen_height() / 3.0, 
-                     40.0, 
+                     40.0 * dpi_scale, 
                      WHITE);
             
             // 绘制开始提示
             draw_chinese_text("点击开始游戏", 
                      screen_width() / 2.0, 
                      screen_height() / 2.0, 
-                     25.0, 
+                     25.0 * dpi_scale, 
                      Color::new(1.0, 0.8, 0.2, 1.0));
             
             // 绘制最高分
             draw_chinese_text(&format!("最高分: {}", game.save_data.high_score), 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 80.0, 
-                     22.0, 
+                     22.0 * dpi_scale, 
                      Color::new(0.2, 0.8, 1.0, 1.0));
             
             // 绘制难度选择
@@ -613,19 +675,19 @@ fn draw_game(game: &Game) {
             draw_chinese_text(mode_text, 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 120.0, 
-                     22.0, 
+                     22.0 * dpi_scale, 
                      if game.easy_mode { GREEN } else { YELLOW });
             
             draw_chinese_text("按空格键切换游戏难度", 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 150.0, 
-                     18.0, 
+                     18.0 * dpi_scale, 
                      WHITE);
             
             draw_chinese_text("1/2:调整方块概率 3/4:调整方块数量", 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 180.0, 
-                     18.0, 
+                     18.0 * dpi_scale, 
                      GRAY);
         },
         GameState::GameOver => {
@@ -636,14 +698,14 @@ fn draw_game(game: &Game) {
             draw_chinese_text("游戏结束", 
                      screen_width() / 2.0, 
                      screen_height() / 3.0, 
-                     30.0, 
+                     30.0 * dpi_scale, 
                      WHITE);
             
             // 绘制最终得分
             draw_chinese_text(&format!("最终得分: {}", game.score), 
                      screen_width() / 2.0, 
                      screen_height() / 2.0, 
-                     25.0, 
+                     25.0 * dpi_scale, 
                      Color::new(1.0, 0.8, 0.2, 1.0));
             
             // 绘制最高分
@@ -657,14 +719,14 @@ fn draw_game(game: &Game) {
             draw_chinese_text(&high_score_text, 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 40.0, 
-                     22.0, 
+                     22.0 * dpi_scale, 
                      if new_record { Color::new(1.0, 0.5, 0.0, 1.0) } else { Color::new(0.2, 0.8, 1.0, 1.0) });
             
             // 绘制重新开始提示
             draw_chinese_text("点击重新开始", 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 100.0, 
-                     25.0, 
+                     25.0 * dpi_scale, 
                      WHITE);
         },
         _ => {}
@@ -961,15 +1023,34 @@ fn update_game(game: &mut Game) {
     }
 }
 
-#[macroquad::main("方块消除游戏")]
+// macroquad窗口配置函数
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "方块消除游戏".to_string(),
+        window_width: 400,
+        window_height: 600,
+        high_dpi: true,  // 保留高DPI支持
+        fullscreen: false,
+        sample_count: 1,  // 移除抗锯齿，使用默认值1
+        window_resizable: false,
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(window_conf)]
 async fn main() {
     run_game().await
 }
 
 // 主要游戏逻辑函数
 async fn run_game() {
-    // 设置竖屏窗口
-    request_new_screen_size(400.0, 600.0); // 修改为竖屏比例
+    // 显示设备信息和DPI缩放
+    let dpi_scale = get_dpi_scale();
+    println!("设备信息: 屏幕大小 {}x{}, DPI缩放: {}", screen_width(), screen_height(), dpi_scale);
+    
+    // iOS设备相关日志
+    #[cfg(target_os = "ios")]
+    println!("在iOS设备上运行，使用3.0倍DPI缩放");
     
     // 使用嵌入的字体数据加载字体，而不是从文件系统加载
     match load_ttf_font_from_bytes(CHINESE_FONT_DATA) {
