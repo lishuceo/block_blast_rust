@@ -1,14 +1,16 @@
 use macroquad::prelude::*;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-
-// 如果需要，显式导入TextAlign
-// use macroquad::text::TextAlign;
+use cloud::PlayerRank;
 
 pub mod block;
 pub mod grid;
 pub mod save;
 pub mod effects;
+pub mod cloud;
+
+// 如果需要，显式导入TextAlign
+// use macroquad::text::TextAlign;
 
 // 移除不必要的导入
 // use wasm_bindgen::prelude::*;
@@ -256,11 +258,13 @@ fn draw_chinese_text(text: &str, x: f32, y: f32, font_size: f32, color: Color) {
 }
 
 // 游戏状态枚举
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 enum GameState {
+    MainMenu,   // 新增主菜单状态，用于显示Figma设计的首页
     Menu,
     Playing,
     GameOver,
+    Leaderboard, // 新增排行榜状态
 }
 
 // 游戏数据
@@ -279,12 +283,25 @@ struct Game {
     standard_block_chance: i32,       // 标准方块生成概率 (0-100)
     blocks_per_generation: usize,     // 每次生成的方块数量 (1-5)
     effects: effects::Effects,         // 特效系统
+    
+    // 排行榜相关字段
+    leaderboard_data: Vec<cloud::PlayerRank>, // 排行榜数据
+    player_rank: Option<cloud::PlayerRank>,   // 玩家自己的排名
+    is_leaderboard_loading: bool,             // 排行榜是否加载中
+    leaderboard_error: Option<String>,        // 排行榜加载错误信息
+    show_leaderboard_button: bool,            // 是否显示排行榜按钮
+    score_uploaded: bool,                     // 分数是否已上传
+    
+    // 主菜单动画相关变量
+    t_block_rotation: f32,            // T形方块旋转角度
+    title_bounce: f32,                // 标题弹跳动画值
+    animation_time: f32,              // 动画计时器
 }
 
 impl Game {
     fn new() -> Self {
         Game {
-            state: GameState::Menu,
+            state: GameState::MainMenu, // 默认进入主菜单状态，而不是旧的Menu
             grid: grid::Grid::new(),
             current_blocks: Vec::new(),
             score: 0,
@@ -298,6 +315,19 @@ impl Game {
             standard_block_chance: 60, // 标准方块60%概率
             blocks_per_generation: 3, // 默认生成3个方块
             effects: effects::Effects::new(), // 初始化特效系统
+            
+            // 排行榜相关字段
+            leaderboard_data: Vec::new(), // 排行榜数据
+            player_rank: None,   // 玩家自己的排名
+            is_leaderboard_loading: false,             // 排行榜是否加载中
+            leaderboard_error: None,        // 排行榜加载错误信息
+            show_leaderboard_button: false,            // 是否显示排行榜按钮
+            score_uploaded: false,                     // 分数是否已上传
+            
+            // 主菜单动画相关变量
+            t_block_rotation: 0.0,
+            title_bounce: 0.0,
+            animation_time: 0.0,
         }
     }
     
@@ -326,12 +356,12 @@ impl Game {
         let is_small_screen = screen_height() < 600.0;
         let spacing = if is_small_screen { 20.0 } else { 30.0 };
         let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
-        let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
+        let _bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
         
         // 确保底部区域最小高度
         let min_bottom_height = screen_height() * 0.2;
-        let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
-        let blocks_y = bottom_area_top + bottom_area_height / 2.0; // 垂直居中
+        let bottom_area_height = (screen_height() - separator_y).max(min_bottom_height);
+        let blocks_y = separator_y + bottom_area_height / 2.0; // 垂直居中
         
         // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸
         let max_block_size = cell_size * 4.0; // 最大方块尺寸
@@ -348,7 +378,7 @@ impl Game {
         let total_width = block_size * self.current_blocks.len() as f32 + block_margin * (self.current_blocks.len() as f32 - 1.0);
         let start_x = (screen_width() - total_width) / 2.0;
         
-        for (idx, block) in self.current_blocks.iter().enumerate() {
+        for (idx, _block) in self.current_blocks.iter().enumerate() {
             // 计算每个方块的中心位置
             let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
             let block_pos_y = blocks_y;
@@ -407,10 +437,185 @@ impl Game {
         }
         true // 没有可放置位置，游戏结束
     }
+
+    // 初始化云服务
+    async fn init_cloud(&mut self) {
+        // 初始化云服务SDK，使用实际的云服务而不是模拟数据
+        match cloud::initialize_sdk().await {
+            Ok(_) => {
+                self.show_leaderboard_button = cloud::is_cloud_initialized();
+                println!("云服务初始化成功");
+            },
+            Err(e) => {
+                println!("云服务初始化失败: {}", e);
+                self.show_leaderboard_button = false;
+            }
+        }
+    }
+
+    // 加载排行榜数据
+    async fn load_leaderboard(&mut self) {
+        self.is_leaderboard_loading = true;
+        self.leaderboard_error = None;
+
+        // 获取排行榜数据
+        match cloud::get_leaderboard(10).await {
+            Ok(_) => {
+                // 获取玩家排名
+                let _ = cloud::get_player_rank().await;
+                
+                // 从全局状态获取数据
+                let (is_loading, error, leaderboard, player_rank) = cloud::get_leaderboard_data();
+                
+                // --- 添加调试打印 ---
+                println!("从 cloud::get_leaderboard_data 获取到的排行榜数据: {:?}", leaderboard);
+                println!("从 cloud::get_leaderboard_data 获取到的玩家排名: {:?}", player_rank);
+                // --- 调试打印结束 ---
+                
+                self.is_leaderboard_loading = is_loading;
+                self.leaderboard_error = error;
+                self.leaderboard_data = leaderboard;
+                self.player_rank = player_rank;
+            },
+            Err(e) => {
+                self.is_leaderboard_loading = false;
+                self.leaderboard_error = Some(e);
+            }
+        }
+    }
+
+    // 上传分数
+    async fn upload_score(&mut self) {
+        if self.score_uploaded || !self.show_leaderboard_button {
+            return;
+        }
+
+        match cloud::upload_score(self.score).await {
+            Ok(_) => {
+                self.score_uploaded = true;
+                // 上传成功后刷新排行榜数据
+                self.load_leaderboard().await;
+            },
+            Err(e) => {
+                println!("上传分数失败: {}", e);
+            }
+        }
+    }
+
+    // 更新主菜单动画
+    fn update_main_menu_animations(&mut self, dt: f32) {
+        // 更新总动画时间
+        self.animation_time += dt;
+        
+        // 更新T形方块旋转 (缓慢旋转)
+        self.t_block_rotation += dt * 0.2;
+        if self.t_block_rotation > std::f32::consts::PI * 2.0 {
+            self.t_block_rotation -= std::f32::consts::PI * 2.0;
+        }
+        
+        // 计算标题弹跳动画 (使用正弦函数)
+        self.title_bounce = (self.animation_time * 2.0).sin() * 5.0;
+    }
+}
+
+// 绘制排行榜界面
+fn draw_leaderboard(game: &mut Game) {
+    let width = screen_width();
+    let height = screen_height();
+    let dpi_scale = get_dpi_scale(); // 获取DPI缩放
+    
+    // 绘制半透明背景
+    draw_rectangle(0.0, 0.0, width, height, Color::new(0.0, 0.0, 0.0, 0.7));
+    
+    // 绘制排行榜标题
+    let title_text = "排行榜";
+    let title_font_size = 40.0 * dpi_scale; // 应用DPI缩放
+    draw_chinese_text(title_text, width / 2.0, height * 0.15, title_font_size, WHITE);
+    
+    // 绘制排行榜数据
+    let font_size = 24.0 * dpi_scale; // 应用DPI缩放
+    let line_height = font_size * 1.5;
+    let start_y = height * 0.25;
+    
+    let leaderboard = &game.leaderboard_data;
+    if leaderboard.is_empty() {
+        let text = "暂无数据";
+        draw_chinese_text(text, width / 2.0, start_y + line_height, font_size, WHITE);
+    } else {
+        // 绘制表头
+        let rank_text = "排名";
+        let name_text = "玩家名称";
+        let score_text = "分数";
+        
+        let column_width = width / 3.0;
+        // 使用draw_chinese_text绘制表头
+        draw_chinese_text(rank_text, width * 0.15, start_y, font_size, WHITE);
+        draw_chinese_text(name_text, width * 0.35, start_y, font_size, WHITE);
+        draw_chinese_text(score_text, width * 0.65, start_y, font_size, WHITE);
+        
+        // 绘制分割线
+        draw_line(width * 0.1, start_y + font_size * 0.5, width * 0.9, start_y + font_size * 0.5, 2.0 * dpi_scale, GRAY); // 应用DPI缩放
+        
+        // 绘制排行榜数据
+        for (i, rank) in leaderboard.iter().enumerate() {
+            let row_y = start_y + line_height * (i as f32 + 1.0);
+            
+            // 绘制排名
+            let rank_display = format!("{}", i + 1);
+            // 使用draw_chinese_text绘制排名（虽然是数字，但保持一致性）
+            draw_chinese_text(&rank_display, width * 0.15, row_y, font_size, WHITE);
+            
+            // 绘制玩家名称
+            // 使用draw_chinese_text绘制玩家名称
+            draw_chinese_text(&rank.name, width * 0.35, row_y, font_size, WHITE);
+            
+            // 绘制分数
+            let score_display = format!("{}", rank.score);
+            // 使用draw_chinese_text绘制分数
+            draw_chinese_text(&score_display, width * 0.65, row_y, font_size, WHITE);
+        }
+    }
+    
+    // 绘制返回按钮
+    let button_width = 200.0 * dpi_scale; // 应用DPI缩放
+    let button_height = 50.0 * dpi_scale; // 应用DPI缩放
+    let button_x = width / 2.0 - button_width / 2.0;
+    let button_y = height * 0.8;
+    
+    let button_color = if is_mouse_in_rect(button_x, button_y, button_width, button_height) {
+        if is_mouse_button_down(MouseButton::Left) {
+            DARKGRAY
+        } else {
+            LIGHTGRAY
+        }
+    } else {
+        GRAY
+    };
+    
+    draw_rectangle(button_x, button_y, button_width, button_height, button_color);
+    
+    let button_text = "返回主菜单";
+    // 使用draw_chinese_text绘制按钮文本
+    draw_chinese_text(button_text, 
+                      button_x + button_width / 2.0, 
+                      button_y + button_height / 2.0, // 调整Y坐标以垂直居中
+                      font_size, 
+                      BLACK);
+    
+    // 检测按钮点击
+    if is_mouse_button_released(MouseButton::Left) && is_mouse_in_rect(button_x, button_y, button_width, button_height) {
+        game.state = GameState::MainMenu; // 修改为返回MainMenu状态
+    }
+}
+
+// 辅助函数，检测鼠标是否在某个矩形区域内
+fn is_mouse_in_rect(x: f32, y: f32, width: f32, height: f32) -> bool {
+    let mouse_pos = mouse_position();
+    mouse_pos.0 >= x && mouse_pos.0 <= x + width && mouse_pos.1 >= y && mouse_pos.1 <= y + height
 }
 
 // 绘制函数
-fn draw_game(game: &Game) {
+fn draw_game(game: &mut Game) {
     // 获取DPI缩放比例
     let dpi_scale = get_dpi_scale();
     
@@ -572,7 +777,7 @@ fn draw_game(game: &Game) {
             let max_dx_all = block.cells.iter().map(|(dx, _)| *dx).max().unwrap_or(0);
             let min_dy_all = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
             let max_dy_all = block.cells.iter().map(|(_, dy)| *dy).max().unwrap_or(0);
-            
+
             let center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
             let center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
             
@@ -639,56 +844,83 @@ fn draw_game(game: &Game) {
                 // 绘制立体方块
                 draw_cube_block(x - cell_size/2.0, y - cell_size/2.0, cell_size, block.color);
             }
-            
         }
     }
     
     // 绘制菜单/游戏结束界面
     match game.state {
+        GameState::MainMenu => {
+            // 主菜单界面在draw_main_menu函数中单独处理
+        },
         GameState::Menu => {
+            let dpi_scale = get_dpi_scale();
+            let width = screen_width();
+            let height = screen_height();
+
             // 绘制半透明背景
-            draw_rectangle(0.0, 0.0, screen_width(), screen_height(), Color::new(0.0, 0.0, 0.0, 0.99));
+            draw_rectangle(0.0, 0.0, width, height, Color::new(0.1, 0.1, 0.12, 0.95)); // 使用稍暗的背景
             
             // 绘制大标题
+            let title_y = height * 0.25;
             draw_chinese_text("逆向俄罗斯方块", 
-                     screen_width() / 2.0, 
-                     screen_height() / 3.0, 
+                     width / 2.0, 
+                     title_y, 
                      40.0 * dpi_scale, 
                      WHITE);
-            
-            // 绘制开始提示
-            draw_chinese_text("点击开始游戏", 
-                     screen_width() / 2.0, 
-                     screen_height() / 2.0, 
-                     25.0 * dpi_scale, 
-                     Color::new(1.0, 0.8, 0.2, 1.0));
+
+            // 按钮尺寸和间距
+            let btn_width = 220.0 * dpi_scale;
+            let btn_height = 55.0 * dpi_scale;
+            let btn_spacing = 20.0 * dpi_scale;
+            let total_btn_height = btn_height * 2.0 + btn_spacing;
+            let btn_start_y = title_y + 100.0 * dpi_scale; // 在标题下方留出更多空间
+
+            // 开始游戏按钮位置
+            let start_btn_x = width / 2.0 - btn_width / 2.0;
+            let start_btn_y = btn_start_y;
+            let start_btn_rect = Rect::new(start_btn_x, start_btn_y, btn_width, btn_height);
+
+            // 排行榜按钮位置
+            let leaderboard_btn_x = start_btn_x;
+            let leaderboard_btn_y = start_btn_y + btn_height + btn_spacing;
+            let leaderboard_btn_rect = Rect::new(leaderboard_btn_x, leaderboard_btn_y, btn_width, btn_height);
+
+            // --- 绘制按钮公共函数 ---
+            let draw_menu_button = |rect: Rect, text: &str, font_size: f32| {
+                let mouse_pos = mouse_position().into();
+                let is_hover = rect.contains(mouse_pos);
+                let is_down = is_hover && is_mouse_button_down(MouseButton::Left);
+                
+                let base_color = Color::from_rgba(70, 70, 90, 255);
+                let hover_color = Color::from_rgba(100, 100, 120, 255);
+                let down_color = Color::from_rgba(50, 50, 70, 255);
+                
+                let btn_color = if is_down { down_color } else if is_hover { hover_color } else { base_color };
+                
+                draw_rectangle(rect.x, rect.y, rect.w, rect.h, btn_color);
+                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.0 * dpi_scale, LIGHTGRAY);
+                
+                draw_chinese_text(text, 
+                                  rect.x + rect.w / 2.0, 
+                                  rect.y + rect.h / 2.0, // 调整Y使文本垂直居中
+                                  font_size, 
+                                  WHITE);
+            };
+            // --- 绘制按钮公共函数结束 ---
+
+            // 绘制开始游戏按钮
+            draw_menu_button(start_btn_rect, "开始游戏", 25.0 * dpi_scale);
+
+            // 绘制排行榜按钮
+            draw_menu_button(leaderboard_btn_rect, "排行榜", 25.0 * dpi_scale);
             
             // 绘制最高分
+            let high_score_y = leaderboard_btn_y + btn_height + 60.0 * dpi_scale;
             draw_chinese_text(&format!("最高分: {}", game.save_data.high_score), 
-                     screen_width() / 2.0, 
-                     screen_height() / 2.0 + 80.0, 
+                     width / 2.0, 
+                     high_score_y, 
                      22.0 * dpi_scale, 
-                     Color::new(0.2, 0.8, 1.0, 1.0));
-            
-            // 绘制难度选择
-            let mode_text = if game.easy_mode { "简单模式" } else { "普通模式" };
-            draw_chinese_text(mode_text, 
-                     screen_width() / 2.0, 
-                     screen_height() / 2.0 + 120.0, 
-                     22.0 * dpi_scale, 
-                     if game.easy_mode { GREEN } else { YELLOW });
-            
-            draw_chinese_text("按空格键切换游戏难度", 
-                     screen_width() / 2.0, 
-                     screen_height() / 2.0 + 150.0, 
-                     18.0 * dpi_scale, 
-                     WHITE);
-            
-            draw_chinese_text("1/2:调整方块概率 3/4:调整方块数量", 
-                     screen_width() / 2.0, 
-                     screen_height() / 2.0 + 180.0, 
-                     18.0 * dpi_scale, 
-                     GRAY);
+                     Color::new(0.6, 0.8, 1.0, 1.0)); // 稍亮的蓝色
         },
         GameState::GameOver => {
             // 绘制半透明背景
@@ -728,6 +960,44 @@ fn draw_game(game: &Game) {
                      screen_height() / 2.0 + 100.0, 
                      25.0 * dpi_scale, 
                      WHITE);
+
+            // GameOver状态下显示排行榜按钮
+            if game.show_leaderboard_button {
+                let dpi_scale = get_dpi_scale();
+                let btn_width = 200.0 * dpi_scale; // 应用DPI
+                let btn_height = 40.0 * dpi_scale; // 应用DPI
+                let btn_x = screen_width() / 2.0 - btn_width / 2.0;
+                let btn_y = screen_height() / 2.0 + 100.0; // 统一按钮位置
+                let btn_rect = Rect::new(btn_x, btn_y, btn_width, btn_height);
+                
+                // 绘制按钮
+                draw_rectangle(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, DARKGRAY);
+                draw_rectangle_lines(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, 2.0 * dpi_scale, WHITE); // 应用DPI
+                
+                // 按钮文字
+                draw_chinese_text(
+                    "查看排行榜", 
+                    btn_rect.x + btn_rect.w / 2.0, 
+                    btn_rect.y + btn_rect.h / 2.0, 
+                    18.0 * dpi_scale, 
+                    WHITE
+                );
+                
+                // 如果分数已上传，显示一个提示
+                if game.score_uploaded {
+                    draw_chinese_text(
+                        "分数已上传", 
+                        screen_width() / 2.0, 
+                        btn_y + btn_height + 20.0 * dpi_scale, // 在按钮下方显示
+                        14.0 * dpi_scale, 
+                        GREEN
+                    );
+                }
+            }
+        },
+        GameState::Leaderboard => {
+            // 绘制排行榜界面
+            draw_leaderboard(game);
         },
         _ => {}
     }
@@ -769,13 +1039,49 @@ fn update_game(game: &mut Game) {
     }
     
     match game.state {
+        GameState::MainMenu => {
+            // 主菜单状态下不需要游戏更新逻辑
+            return;
+        },
         GameState::Menu => {
             if is_mouse_button_pressed(MouseButton::Left) {
-                game.state = GameState::Playing;
-                game.grid = grid::Grid::new();
-                game.score = 0;
-                game.combo = 0;
-                game.generate_blocks();
+                let dpi_scale = get_dpi_scale();
+                let width = screen_width();
+                let height = screen_height();
+                let mouse_pos: Vec2 = mouse_position().into();
+
+                // 按钮尺寸和位置计算（与draw_game中保持一致）
+                let title_y = height * 0.25;
+                let btn_width = 220.0 * dpi_scale;
+                let btn_height = 55.0 * dpi_scale;
+                let btn_spacing = 20.0 * dpi_scale;
+                let btn_start_y = title_y + 100.0 * dpi_scale;
+
+                let start_btn_x = width / 2.0 - btn_width / 2.0;
+                let start_btn_y = btn_start_y;
+                let start_btn_rect = Rect::new(start_btn_x, start_btn_y, btn_width, btn_height);
+
+                let leaderboard_btn_x = start_btn_x;
+                let leaderboard_btn_y = start_btn_y + btn_height + btn_spacing;
+                let leaderboard_btn_rect = Rect::new(leaderboard_btn_x, leaderboard_btn_y, btn_width, btn_height);
+
+                // 检查是否点击了开始游戏按钮
+                if start_btn_rect.contains(mouse_pos) {
+                    game.state = GameState::Playing;
+                    game.grid = grid::Grid::new(); // 重置网格
+                    game.score = 0;
+                    game.combo = 0;
+                    game.score_uploaded = false; // 重置上传状态
+                    game.generate_blocks();
+                    // 清空拖拽状态，以防万一
+                    game.drag_block_idx = None;
+                    game.drag_pos = None;
+                }
+                // 检查是否点击了排行榜按钮
+                else if leaderboard_btn_rect.contains(mouse_pos) {
+                    game.state = GameState::Leaderboard;
+                    // 注意：排行榜数据的加载将在run_game循环中处理
+                }
             }
         },
         GameState::Playing => {
@@ -833,12 +1139,12 @@ fn update_game(game: &mut Game) {
                         let max_dx_all = block.cells.iter().map(|(dx, _)| *dx).max().unwrap_or(0);
                         let min_dy_all = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
                         let max_dy_all = block.cells.iter().map(|(_, dy)| *dy).max().unwrap_or(0);
-                        let center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
-                        let center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
+                        let _center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
+                        let _center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
                         
                         // 从方块中心到左上角cell的偏移
-                        let offset_to_top_left_x = (min_dx as f32 - center_x) * cell_size;
-                        let offset_to_top_left_y = (min_dy as f32 - center_y) * cell_size;
+                        let offset_to_top_left_x = (min_dx as f32 - _center_x) * cell_size;
+                        let offset_to_top_left_y = (min_dy as f32 - _center_y) * cell_size;
                         
                         // 计算左上角cell的中心点坐标
                         let top_left_cell_center = Vec2::new(
@@ -1017,8 +1323,37 @@ fn update_game(game: &mut Game) {
         },
         GameState::GameOver => {
             if is_mouse_button_pressed(MouseButton::Left) {
-                game.state = GameState::Menu;
+                let dpi_scale = get_dpi_scale();
+                let width = screen_width();
+                let height = screen_height();
+                let mouse_pos: Vec2 = mouse_position().into();
+
+                // 重新开始按钮的隐形区域（整个屏幕，除了排行榜按钮）
+                let leaderboard_btn_width = 200.0 * dpi_scale;
+                let leaderboard_btn_height = 40.0 * dpi_scale;
+                let leaderboard_btn_x = width / 2.0 - leaderboard_btn_width / 2.0;
+                // 注意：这里的 Y 坐标要和 draw_game 中绘制排行榜按钮的 Y 坐标匹配
+                // 在 draw_game 的 GameOver 分支中，是 height / 2.0 + 80.0 (原始值) 
+                // 但我们需要使用经过DPI缩放的值进行比较，或者重新计算draw_game中的值
+                // 暂时假设draw_game中的按钮绘制位置是固定的像素值，不依赖DPI（需要检查draw_game）
+                // 假设draw_game中GameOver的按钮位置是相对于中心点固定的
+                let leaderboard_btn_y = height / 2.0 + 100.0; // 调整了draw_game GameOver按钮位置，这里保持一致
+                let leaderboard_btn_rect = Rect::new(leaderboard_btn_x, leaderboard_btn_y, leaderboard_btn_width, leaderboard_btn_height);
+                
+                // 检查是否点击了排行榜按钮
+                if game.show_leaderboard_button && leaderboard_btn_rect.contains(mouse_pos) {
+                    game.state = GameState::Leaderboard;
+                    // 加载操作由run_game处理
+                } else {
+                    // 点击其他区域则重新开始
+                    game.state = GameState::Menu; // 返回菜单而不是直接开始游戏
+                    // 游戏状态的重置将在进入Menu或Playing状态时处理
+                }
             }
+        },
+        GameState::Leaderboard => {
+            // 排行榜状态下，不需要任何更新逻辑
+            // 按钮处理放在run_game中
         }
     }
 }
@@ -1039,14 +1374,9 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    run_game().await
-}
-
-// 主要游戏逻辑函数
-async fn run_game() {
     // 显示设备信息和DPI缩放
-    let dpi_scale = get_dpi_scale();
-    println!("设备信息: 屏幕大小 {}x{}, DPI缩放: {}", screen_width(), screen_height(), dpi_scale);
+    let _dpi_scale = get_dpi_scale();
+    println!("设备信息: 屏幕大小 {}x{}, DPI缩放: {}", screen_width(), screen_height(), _dpi_scale);
     
     // iOS设备相关日志
     #[cfg(target_os = "ios")]
@@ -1066,13 +1396,363 @@ async fn run_game() {
         }
     }
     
+    // 启动游戏
+    run_game().await;
+}
+
+// 主要游戏逻辑函数
+async fn run_game() {
     let mut game = Game::new();
+    let mut previous_state = game.state; // 跟踪上一个状态
     
+    // 初始化云服务
+    game.init_cloud().await;
+
+    // macroquad没有直接的set_target_fps函数
+    // 可以改用适当的帧速率控制
+    
+    // 主游戏循环
     loop {
-        update_game(&mut game);
-        draw_game(&game);
+        // 状态转换逻辑: 在进入新状态时执行一次性操作
+        if game.state != previous_state {
+            match game.state {
+                GameState::MainMenu => {
+                    println!("进入主菜单状态");
+                    // 重置一些状态或设置主菜单初始值
+                },
+                GameState::Playing => {
+                    // 从菜单或游戏结束进入游戏状态时，重置一些数据
+                    // （大部分重置已在update_game中处理）
+                    println!("进入游戏状态");
+                },
+                GameState::Leaderboard => {
+                    // 进入排行榜状态时，加载数据
+                    println!("进入排行榜状态，加载数据...");
+                    game.load_leaderboard().await;
+                },
+                GameState::GameOver => {
+                    // 进入游戏结束状态时，上传分数
+                    println!("进入游戏结束状态");
+                    if game.score > game.save_data.high_score {
+                        game.save_data.high_score = game.score;
+                        game.save_data.save();
+                    }
+                    if game.show_leaderboard_button && !game.score_uploaded {
+                        game.upload_score().await;
+                    }
+                },
+                GameState::Menu => {
+                    println!("返回菜单");
+                    // 如果需要，可以在这里重置特定菜单状态
+                }
+            }
+            previous_state = game.state; // 更新上一个状态
+        }
+
+        // 清理屏幕
+        clear_background(BLACK);
         
-        next_frame().await
+        // 更新和绘制当前状态
+        match game.state {
+            GameState::MainMenu => {
+                // 更新主菜单动画
+                game.update_main_menu_animations(get_frame_time());
+                // 绘制主菜单
+                draw_main_menu(&mut game);
+            },
+            GameState::Menu => draw_menu(&mut game),
+            GameState::Playing => {
+                update_game(&mut game);
+                draw_game(&mut game);
+            },
+            GameState::GameOver => {
+                // 绘制游戏结束界面
+                draw_game(&mut game); 
+                // 更新逻辑（处理重新开始或查看排行榜点击）
+                update_game(&mut game); // update_game 会根据点击改变状态
+            },
+            GameState::Leaderboard => {
+                // 绘制排行榜界面
+                draw_leaderboard(&mut game); // draw_leaderboard 处理返回按钮点击并改变状态
+                // 排行榜状态的更新逻辑（例如滚动）可以在这里添加，
+                // 但目前返回按钮在draw_leaderboard内部处理
+                update_game(&mut game); // 让update有机会处理Leaderboard状态（虽然目前为空）
+            }
+        }
+        
+        // 等待下一帧
+        next_frame().await;
+    }
+}
+
+// 新增绘制主菜单界面的函数
+fn draw_main_menu(game: &mut Game) {
+    // 清屏为深色背景 - 匹配Figma设计
+    clear_background(Color::new(0.11, 0.11, 0.16, 1.0));
+    
+    let width = screen_width();
+    let height = screen_height();
+    let dpi_scale = get_dpi_scale();
+    
+    // 计算居中位置
+    let center_x = width / 2.0;
+    
+    // 标题文本 - 应用弹跳动画
+    let title_y = height * 0.2 + game.title_bounce;
+    let title_size = 48.0 * dpi_scale;
+    draw_chinese_text("方块爆破", center_x, title_y, title_size, Color::new(1.0, 0.4, 0.2, 1.0));
+    
+    // 副标题
+    let subtitle_y = title_y + 60.0 * dpi_scale;
+    let subtitle_size = 24.0 * dpi_scale;
+    draw_chinese_text("Rust 版本", center_x, subtitle_y, subtitle_size, Color::new(0.8, 0.8, 0.9, 1.0));
+    
+    // 计算按钮尺寸和位置
+    let button_width = 200.0 * dpi_scale;
+    let button_height = 60.0 * dpi_scale;
+    let button_x = center_x - button_width / 2.0;
+    
+    // 开始游戏按钮
+    let start_button_y = height * 0.45;
+    let start_button_rect = Rect::new(button_x, start_button_y, button_width, button_height);
+    
+    // 绘制开始游戏按钮（蓝色）
+    draw_rectangle(
+        start_button_rect.x, 
+        start_button_rect.y, 
+        start_button_rect.w, 
+        start_button_rect.h, 
+        Color::new(0.2, 0.6, 1.0, 1.0)
+    );
+    
+    // 添加按钮边框，模拟圆角效果
+    draw_rectangle_lines(
+        start_button_rect.x, 
+        start_button_rect.y, 
+        start_button_rect.w, 
+        start_button_rect.h, 
+        2.0 * dpi_scale,
+        Color::new(0.3, 0.7, 1.0, 1.0)
+    );
+    
+    // 开始游戏按钮文字
+    let button_text_size = 24.0 * dpi_scale;
+    draw_chinese_text(
+        "开始游戏", 
+        center_x, 
+        start_button_rect.y + start_button_rect.h / 2.0 + button_text_size / 4.0, 
+        button_text_size, 
+        WHITE
+    );
+    
+    // 排行榜按钮
+    let leaderboard_button_y = start_button_y + button_height + 20.0 * dpi_scale;
+    let leaderboard_button_rect = Rect::new(button_x, leaderboard_button_y, button_width, button_height);
+    
+    // 绘制排行榜按钮（深色带边框）
+    draw_rectangle(
+        leaderboard_button_rect.x, 
+        leaderboard_button_rect.y, 
+        leaderboard_button_rect.w, 
+        leaderboard_button_rect.h, 
+        Color::new(0.2, 0.2, 0.3, 1.0)
+    );
+    
+    // 添加蓝色边框，模拟圆角效果
+    draw_rectangle_lines(
+        leaderboard_button_rect.x, 
+        leaderboard_button_rect.y, 
+        leaderboard_button_rect.w, 
+        leaderboard_button_rect.h, 
+        2.0 * dpi_scale,
+        Color::new(0.3, 0.7, 1.0, 1.0)
+    );
+    
+    // 排行榜按钮文字
+    draw_chinese_text(
+        "排行榜", 
+        center_x, 
+        leaderboard_button_rect.y + leaderboard_button_rect.h / 2.0 + button_text_size / 4.0, 
+        button_text_size, 
+        WHITE
+    );
+    
+    // 绘制T形俄罗斯方块 - 使用简单方块绘制，不使用旋转动画
+    let block_size = 50.0 * dpi_scale;
+    let t_block_center_x = center_x;
+    let t_block_center_y = height * 0.75;
+    
+    // 绘制T形方块（紫色）
+    let block_color = Color::new(0.8, 0.3, 0.9, 1.0);
+    
+    // 上方方块 - 使用立体方块绘制
+    draw_cube_block(
+        t_block_center_x - block_size / 2.0, 
+        t_block_center_y - block_size * 1.5, 
+        block_size, 
+        block_color
+    );
+    
+    // 左方块
+    draw_cube_block(
+        t_block_center_x - block_size * 1.5, 
+        t_block_center_y - block_size / 2.0, 
+        block_size, 
+        block_color
+    );
+    
+    // 中间方块
+    draw_cube_block(
+        t_block_center_x - block_size / 2.0, 
+        t_block_center_y - block_size / 2.0, 
+        block_size, 
+        block_color
+    );
+    
+    // 右方块
+    draw_cube_block(
+        t_block_center_x + block_size / 2.0, 
+        t_block_center_y - block_size / 2.0, 
+        block_size, 
+        block_color
+    );
+    
+    // 页脚版权信息
+    let footer_y = height - 30.0 * dpi_scale;
+    let footer_size = 14.0 * dpi_scale;
+    draw_chinese_text(
+        "© 2023 方块爆破 | Rust 版本", 
+        center_x, 
+        footer_y, 
+        footer_size, 
+        Color::new(0.6, 0.6, 0.7, 1.0)
+    );
+    
+    // 检测按钮点击
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let mouse_pos = mouse_position();
+        
+        // 开始游戏按钮点击
+        if start_button_rect.contains(Vec2::new(mouse_pos.0, mouse_pos.1)) {
+            // 直接进入游戏状态而不是菜单状态
+            game.state = GameState::Playing;
+            game.score = 0;
+            game.combo = 0;
+            game.grid = grid::Grid::new();
+            game.generate_blocks();
+            game.score_uploaded = false;
+            // 可以添加一些按钮点击效果
+        }
+        
+        // 排行榜按钮点击
+        if leaderboard_button_rect.contains(Vec2::new(mouse_pos.0, mouse_pos.1)) {
+            if game.show_leaderboard_button {
+                game.state = GameState::Leaderboard;
+                // 可以在这里加载排行榜数据
+            }
+        }
+    }
+}
+
+// 绘制传统菜单界面的函数
+fn draw_menu(game: &mut Game) {
+    // 绘制游戏界面作为背景
+    draw_game(game);
+    
+    // 绘制半透明覆盖层使背景变暗
+    let width = screen_width();
+    let height = screen_height();
+    draw_rectangle(0.0, 0.0, width, height, Color::new(0.0, 0.0, 0.0, 0.7));
+    
+    let dpi_scale = get_dpi_scale();
+    let center_x = width / 2.0;
+    let center_y = height / 2.0;
+    
+    // 标题
+    let title_size = 40.0 * dpi_scale;
+    draw_chinese_text("方块爆破", center_x, center_y - 100.0 * dpi_scale, title_size, Color::new(1.0, 0.4, 0.2, 1.0));
+    
+    // 高分显示
+    let high_score_size = 24.0 * dpi_scale;
+    let high_score_text = format!("最高分: {}", game.save_data.high_score);
+    draw_chinese_text(&high_score_text, center_x, center_y - 30.0 * dpi_scale, high_score_size, WHITE);
+    
+    // 游戏模式选择
+    let mode_size = 20.0 * dpi_scale;
+    let mode_text = if game.easy_mode {
+        "简单模式"
+    } else {
+        "普通模式"
+    };
+    draw_chinese_text(mode_text, center_x, center_y + 20.0 * dpi_scale, mode_size, WHITE);
+    
+    // 开始提示
+    let hint_size = 28.0 * dpi_scale;
+    draw_chinese_text("点击开始游戏", center_x, center_y + 70.0 * dpi_scale, hint_size, WHITE);
+    
+    // 切换难度提示
+    let space_hint_size = 16.0 * dpi_scale;
+    draw_chinese_text("按空格键切换游戏难度", center_x, center_y + 120.0 * dpi_scale, space_hint_size, Color::new(0.8, 0.8, 0.8, 1.0));
+    
+    // 主菜单按钮
+    let back_size = 16.0 * dpi_scale;
+    let back_text = "返回主菜单";
+    let back_width = measure_text(back_text, None, back_size as u16, 1.0).width;
+    let back_x = 20.0 * dpi_scale;
+    let back_y = 20.0 * dpi_scale;
+    let back_padding = 10.0 * dpi_scale;
+    let back_rect = Rect::new(
+        back_x - back_padding, 
+        back_y - back_size, 
+        back_width + 2.0 * back_padding, 
+        back_size + 2.0 * back_padding
+    );
+    
+    // 绘制返回按钮背景和文字
+    draw_rectangle(
+        back_rect.x, 
+        back_rect.y, 
+        back_rect.w, 
+        back_rect.h, 
+        Color::new(0.2, 0.2, 0.3, 0.8)
+    );
+    draw_text(back_text, back_x, back_y, back_size, WHITE);
+    
+    // 检测鼠标点击
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let mouse_pos = mouse_position();
+        let mouse_vec = Vec2::new(mouse_pos.0, mouse_pos.1);
+        
+        // 返回主菜单按钮点击
+        if back_rect.contains(mouse_vec) {
+            game.state = GameState::MainMenu;
+            return;
+        }
+        
+        // 点击其他区域启动游戏
+        game.score = 0;
+        game.combo = 0;
+        game.grid = grid::Grid::new();
+        game.generate_blocks();
+        game.score_uploaded = false;
+        game.state = GameState::Playing;
+    }
+    
+    // 空格键切换游戏难度
+    if is_key_pressed(KeyCode::Space) {
+        game.easy_mode = !game.easy_mode;
+        
+        if game.easy_mode {
+            // 简单模式参数
+            game.simple_block_chance = 30;
+            game.standard_block_chance = 60;
+            game.blocks_per_generation = 3;
+        } else {
+            // 普通模式参数
+            game.simple_block_chance = 20;
+            game.standard_block_chance = 50;
+            game.blocks_per_generation = 2;
+        }
     }
 }
 

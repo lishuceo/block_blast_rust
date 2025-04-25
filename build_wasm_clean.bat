@@ -42,8 +42,18 @@ if exist canvas_fixer.js (
   echo   - 警告：未找到canvas_fixer.js文件！游戏可能无法正常显示尺寸。
 )
 
-REM 2.3 检查并复制resource文件夹
-echo 2.3 检查resources文件夹...
+REM 2.3 复制js_bridge.js文件
+echo 2.3 复制js_bridge.js文件到web目录...
+if exist js_bridge.js (
+  copy /y js_bridge.js web\js_bridge.js > nul
+  echo   - js_bridge.js文件复制成功
+) else (
+  echo   - 错误：未找到js_bridge.js文件！WASM与JavaScript交互将无法正常工作。
+  exit /b 1
+)
+
+REM 2.4 检查并复制resource文件夹
+echo 2.4 检查resources文件夹...
 if exist resources (
   echo   - 复制resources文件夹内容...
   xcopy /E /I /Y resources web\resources > nul

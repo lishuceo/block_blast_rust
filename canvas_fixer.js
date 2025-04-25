@@ -7,7 +7,7 @@
 let canvasElement = null;
 let gameWrapper = null;
 let gameContainer = null;
-let debugMode = true; // 调试模式
+let debugMode = false; // 禁用调试模式
 let isLandscapeMode = false; // 当前是否为横屏模式
 let originalWidth = 400; // 原始逻辑宽度
 let originalHeight = 600; // 原始逻辑高度

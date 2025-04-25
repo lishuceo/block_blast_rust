@@ -79,115 +79,13 @@
             -webkit-tap-highlight-color: rgba(0,0,0,0); /* 禁止iOS点击高亮 */
         }
         
-        /* 注释掉所有媒体查询，避免干扰JS缩放 
-        
-        /* 屏幕适配 - 竖屏模式 */
-        @media screen and (max-height: 620px) {
-            .game-wrapper:not(.landscape) {
-                transform: scale(0.85);
-                transform-origin: center center;
-            }
-        }
-        
-        @media screen and (max-width: 420px) {
-            .game-wrapper:not(.landscape) {
-                transform: scale(0.85);
-                transform-origin: center center;
-            }
-        }
-        
-        /* 屏幕适配 - 横屏模式 */
-        @media screen and (orientation: landscape) {
-            /* 小屏幕横屏设备 */
-            @media screen and (max-height: 420px) {
-                .game-wrapper.landscape {
-                    transform: rotate(-90deg) scale(0.65);
-                }
-            }
-            
-            /* 中等屏幕横屏设备 */
-            @media screen and (min-height: 421px) and (max-height: 500px) {
-                .game-wrapper.landscape {
-                    transform: rotate(-90deg) scale(0.75);
-                }
-            }
-            
-            /* 大屏幕横屏设备 */
-            @media screen and (min-height: 501px) {
-                .game-wrapper.landscape {
-                    transform: rotate(-90deg) scale(0.85);
-                }
-            }
-        }
-        
-        /* iOS设备特别适配 */
-        @supports (-webkit-touch-callout: none) {
-            /* iOS设备默认适配 */
-            .game-wrapper:not(.landscape) {
-                transform: scale(0.9);
-                transform-origin: center center;
-            }
-            
-            .game-wrapper.landscape {
-                transform: rotate(-90deg) scale(0.8);
-            }
-            
-            /* 较小的iOS设备 */
-            @media screen and (max-height: 700px) {
-                .game-wrapper:not(.landscape) {
-                    transform: scale(0.8);
-                }
-                
-                .game-wrapper.landscape {
-                    transform: rotate(-90deg) scale(0.7);
-                }
-            }
-            
-            /* 非常小的iOS设备 */
-            @media screen and (max-height: 600px) {
-                .game-wrapper:not(.landscape) {
-                    transform: scale(0.7);
-                }
-                
-                .game-wrapper.landscape {
-                    transform: rotate(-90deg) scale(0.6);
-                }
-            }
-        }
-        */
-        
-        /* 游戏方向切换按钮 - 已移除
-        .orientation-toggle {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            width: 40px;
-            height: 40px;
-            background: rgba(0, 0, 0, 0.5);
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            cursor: pointer;
-            border: 2px solid white;
-            padding: 0;
-        }
-        
-        .orientation-toggle svg {
-            width: 24px;
-            height: 24px;
-            fill: white;
-            transition: transform 0.3s ease;
-        }
-        
-        .orientation-toggle.landscape svg {
-            transform: rotate(90deg);
-        }
-        */
+       
     </style>
     <!-- 确保在任何其他脚本前加载尺寸修复工具 -->
     <script src="canvas_fixer.js"></script>
+    
+    <!-- 添加SCE SDK (需要先加载) -->
+    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.0.2/dist/sce.min.js"></script>
 </head>
 
 <body>
@@ -200,17 +98,102 @@
         </div>
     </div>
     
-    <!-- 方向切换按钮 - 已移除
-    <button class="orientation-toggle" id="orientationToggle">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M16,17V7H8V17H16M16,3A2,2 0 0,1 18,5V19A2,2 0 0,1 16,21H8A2,2 0 0,1 6,19V5A2,2 0 0,1 8,3H16Z" />
-        </svg>
-    </button>
-    -->
-    
+    <!-- 将脚本移到body末尾以确保DOM加载完成 -->
     <!-- 加载macroquad的JavaScript -->
     <script src="mq_js_bundle.js"></script>
+    <!-- 添加JavaScript桥接代码（放在mq_js_bundle.js之后） -->
+    <script src="js_bridge.js"></script>
+    
+    <!-- 内联脚本也移到最后 -->
     <script>
+        // SCE SDK配置
+        window.SCE_CONFIG = {
+            developer_token: '830bb80b-f57b-447b-b41a-d701886202ec', // 重要: 发布前必须替换为有效的开发者令牌，否则排行榜功能无法使用!
+            env: 'master'                               // 环境: pd(生产环境)、alpha、beta等
+        };
+        
+        // 初始化SDK的辅助函数
+        window.sce_init_sdk = function(token, env) {
+            // 检查SceSDK对象是否存在
+            if (typeof SceSDK === 'undefined' || SceSDK === null) {
+                const errorMsg = "SCE SDK尚未加载或初始化失败";
+                console.error(errorMsg);
+                return JSON.stringify({success: false, message: errorMsg});
+            }
+            
+            try {
+                SceSDK.init({
+                    sce_developer_token: token,
+                    env: env || 'pd'
+                });
+                console.log("SCE SDK 初始化成功");
+                return JSON.stringify({success: true});
+            } catch (error) {
+                console.error("SCE SDK初始化失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 登录辅助函数
+        window.sce_login = async function() {
+            try {
+                await SceSDK.login();
+                const userInfo = SceSDK.get_user_info();
+                return JSON.stringify({
+                    success: true,
+                    userId: userInfo.user_id,
+                    userName: userInfo.name
+                });
+            } catch (error) {
+                console.error("SCE SDK登录失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 上传分数
+        window.sce_upload_score = async function(score) {
+            try {
+                const res = await SceSDK.cloud.set_number('player_score', score);
+                const result = await res.json();
+                return JSON.stringify({success: result.code === 0});
+            } catch (error) {
+                console.error("上传分数失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 获取排行榜
+        window.sce_get_leaderboard = async function(limit) {
+            try {
+                const res = await SceSDK.cloud.get_top_rank('player_score', limit || 10, true, 'desc');
+                const result = await res.json();
+                return JSON.stringify({
+                    success: result.code === 0,
+                    data: result.rows || []
+                });
+            } catch (error) {
+                console.error("获取排行榜失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 获取用户排名
+        window.sce_get_user_rank = async function() {
+            try {
+                const res = await SceSDK.cloud.get_user_rank('player_score');
+                const result = await res.json();
+                return JSON.stringify({
+                    success: result.code === 0,
+                    rank: result.rank,
+                    score: result.value,
+                    userId: result.user_id
+                });
+            } catch (error) {
+                console.error("获取用户排名失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
         // 检测WebAssembly JIT状态
         window.checkWasmJitEnabled = function() {
             // 尝试检测Wasm是否可用和JIT状态
@@ -333,16 +316,6 @@
                     }
                     lastTouchEnd = now;
                 }, false);
-            }
-            
-            // 在强制设置尺寸后，加载WASM
-            try {
-                // 尝试加载WASM文件
-                load("block_blast_bin.wasm");
-                console.log("WASM加载成功");
-            } catch(e) {
-                console.error("加载WASM出错:", e);
-                alert("游戏加载失败，请刷新页面或检查控制台错误信息");
             }
         });
     </script>
