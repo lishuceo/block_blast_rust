@@ -164,9 +164,11 @@
         
         // 获取排行榜
         window.sce_get_leaderboard = async function(limit) {
+            console.log("call sce_get_leaderboard");
             try {
                 const res = await SceSDK.cloud.get_top_rank('player_score', limit || 10, true, 'desc');
                 const result = await res.json();
+                console.log("获取排行榜成功:", result);
                 return JSON.stringify({
                     success: result.code === 0,
                     data: result.rows || []

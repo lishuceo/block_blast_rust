@@ -3,6 +3,11 @@ description:
 globs: 
 alwaysApply: true
 ---
+---
+description: 
+globs: 
+alwaysApply: true
+---
 Always respond in 中文
 - DOCUMENTATION.md 里面记录了详细的技术文档，当每次对话中产生了新的技术实现比如架构变动、新增函数、类、新增文件之类的都要详细的记录在这个文档里，为了让后人和之后的AI开发者能更容易理解完整项目。
 - 要有1/10的概率触发主动检查DOCUMENTATION.md是否落后了

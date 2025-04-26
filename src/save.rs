@@ -1,6 +1,10 @@
 // 保存和加载游戏数据
 use macroquad::prelude::*;
 
+// 导入宏
+use crate::{log_debug, log_info, log_warn, log_error};
+
+#[derive(Debug, Clone)]
 pub struct SaveData {
     pub high_score: u32,
 }
@@ -13,14 +17,15 @@ impl SaveData {
     }
     
     pub fn save(&self) {
-        // 简化版本：我们暂时不实际保存
-        // 由于WASM环境中存储方式可能不同，这里只是定义接口
-        println!("保存最高分: {}", self.high_score);
+        // 简单的存档实现 - 没有实际持久化
+        log_info!("保存最高分: {}", self.high_score);
+        // TODO: 实现真正的存档功能
     }
     
     pub fn load() -> Self {
-        // 简化版本：我们暂时总是返回默认数据
-        // 实际应用中，可以从localStorage (Web)或本地文件系统加载
-        SaveData::new()
+        // 简单的加载实现 - 没有实际持久化
+        SaveData {
+            high_score: 0,
+        }
     }
 } 

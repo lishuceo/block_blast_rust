@@ -28,6 +28,7 @@ block_blast_rust/
 │   ├── effects.rs          # 粒子效果和视觉特效
 │   ├── cloud.rs            # 云服务和排行榜实现
 │   ├── random.rs           # 随机数生成工具
+│   ├── log.rs              # 跨平台日志系统
 │   └── minimal.rs          # 最小化示例代码
 ├── resources/              # 资源文件目录
 │   └── fonts/              # 字体文件
@@ -172,6 +173,35 @@ block_blast_rust/
    - 物理模拟 (简单重力)
    - 随机生成和运动
 
+### log.rs
+
+新增的跨平台日志系统:
+
+1. **日志级别**:
+   ```rust
+   pub enum LogLevel {
+       Debug = 0,
+       Info = 1,
+       Warning = 2,
+       Error = 3,
+   }
+   ```
+
+2. **平台适配**:
+   - WASM 环境：通过 JavaScript 桥接将日志输出到浏览器控制台
+   - 非 WASM 环境：使用标准的 println!/eprintln! 输出到控制台
+
+3. **便捷宏**:
+   - `log_debug!`: 输出调试信息
+   - `log_info!`: 输出一般信息
+   - `log_warn!`: 输出警告信息
+   - `log_error!`: 输出错误信息
+
+4. **JavaScript 集成**:
+   - 使用 Rust 的 `extern "C"` 声明 JavaScript 端的日志函数
+   - 通过 `js_bridge.js` 中注册的 `console_log` 函数实现浏览器控制台输出
+   - 支持不同日志级别对应不同控制台方法 (debug, info, warn, error)
+
 ### save.rs
 
 处理游戏数据的保存和加载:
@@ -262,6 +292,11 @@ pub struct SaveData {
    - 使用 JavaScript 桥接函数连接 Rust 代码和 SCE SDK
    - 提供登录、排行榜、分数上传等功能
    - 支持离线和在线两种模式
+
+4. **WASM 日志系统**:
+   - 通过 JavaScript 桥接将 Rust 日志输出到浏览器控制台
+   - 支持不同级别的日志（调试、信息、警告、错误）
+   - 提供便捷的日志宏接口，统一不同平台的日志体验
 
 ## SCE SDK 集成详解
 
@@ -447,5 +482,11 @@ python serve.py
    - 通过`invoke_js_with_result`函数调用SCE SDK的JavaScript API
    - 使用JSON进行数据交换
    - 提供完整的排行榜和用户管理功能
+
+4. **日志系统集成**：
+   - 通过JavaScript桥接将Rust日志输出到浏览器控制台
+   - 根据日志级别使用不同的控制台函数(`console.debug`, `console.info`, `console.warn`, `console.error`)
+   - 在原生平台上则使用标准输出
+   - 提供统一的日志宏接口(`log_debug!`, `log_info!`, `log_warn!`, `log_error!`)
 
 使用这种方法，我们能够在WASM环境中正确调用JavaScript函数，同时保持类型安全和内存安全。 

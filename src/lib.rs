@@ -6,6 +6,7 @@ pub mod block;
 pub mod grid; 
 pub mod save; 
 pub mod effects;
+pub mod log;
  
 // 注意：此库仅使用macroquad处理WASM导出 
 // 此版本中不使用wasm-bindgen 

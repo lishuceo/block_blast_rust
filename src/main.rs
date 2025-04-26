@@ -8,6 +8,14 @@ pub mod grid;
 pub mod save;
 pub mod effects;
 pub mod cloud;
+pub mod log;
+
+// 使用宏导入
+#[macro_use]
+mod log_macro_import {
+    // 空模块，仅用于导入宏
+    pub use crate::log::*;
+}
 
 // 如果需要，显式导入TextAlign
 // use macroquad::text::TextAlign;
@@ -65,7 +73,7 @@ pub extern "C" fn wasm_init() {
     // 在WASM环境下设置更友好的panic处理
     std::panic::set_hook(Box::new(|panic_info| {
         let message = format!("游戏发生错误: {:?}", panic_info);
-        println!("{}", message);
+        log_error!("{}", message);
         // 这里可以添加显示错误信息的UI代码
     }));
 }
@@ -444,10 +452,10 @@ impl Game {
         match cloud::initialize_sdk().await {
             Ok(_) => {
                 self.show_leaderboard_button = cloud::is_cloud_initialized();
-                println!("云服务初始化成功");
+                log_info!("云服务初始化成功");
             },
             Err(e) => {
-                println!("云服务初始化失败: {}", e);
+                log_error!("云服务初始化失败: {}", e);
                 self.show_leaderboard_button = false;
             }
         }
@@ -468,8 +476,8 @@ impl Game {
                 let (is_loading, error, leaderboard, player_rank) = cloud::get_leaderboard_data();
                 
                 // --- 添加调试打印 ---
-                println!("从 cloud::get_leaderboard_data 获取到的排行榜数据: {:?}", leaderboard);
-                println!("从 cloud::get_leaderboard_data 获取到的玩家排名: {:?}", player_rank);
+                log_debug!("从 cloud::get_leaderboard_data 获取到的排行榜数据: {:?}", leaderboard);
+                log_debug!("从 cloud::get_leaderboard_data 获取到的玩家排名: {:?}", player_rank);
                 // --- 调试打印结束 ---
                 
                 self.is_leaderboard_loading = is_loading;
@@ -497,7 +505,7 @@ impl Game {
                 self.load_leaderboard().await;
             },
             Err(e) => {
-                println!("上传分数失败: {}", e);
+                log_error!("上传分数失败: {}", e);
             }
         }
     }
@@ -1079,6 +1087,7 @@ fn update_game(game: &mut Game) {
                 }
                 // 检查是否点击了排行榜按钮
                 else if leaderboard_btn_rect.contains(mouse_pos) {
+                    log_info!("点击了排行榜按钮");
                     game.state = GameState::Leaderboard;
                     // 注意：排行榜数据的加载将在run_game循环中处理
                 }
@@ -1212,7 +1221,7 @@ fn update_game(game: &mut Game) {
                                 
                                 // 如果位置被校正了，播放提示音效或视觉效果
                                 if corrected_x != grid_x || corrected_y != grid_y {
-                                    println!("位置已自动校正: 从({},{})到({},{})", 
+                                    log_info!("位置已自动校正: 从({},{})到({},{})", 
                                              grid_x, grid_y, corrected_x, corrected_y);
                                     // TODO: 添加声音或特效提示
                                 }
@@ -1376,23 +1385,23 @@ fn window_conf() -> Conf {
 async fn main() {
     // 显示设备信息和DPI缩放
     let _dpi_scale = get_dpi_scale();
-    println!("设备信息: 屏幕大小 {}x{}, DPI缩放: {}", screen_width(), screen_height(), _dpi_scale);
+    log_info!("设备信息: 屏幕大小 {}x{}, DPI缩放: {}", screen_width(), screen_height(), _dpi_scale);
     
     // iOS设备相关日志
     #[cfg(target_os = "ios")]
-    println!("在iOS设备上运行，使用3.0倍DPI缩放");
+    log_info!("在iOS设备上运行，使用3.0倍DPI缩放");
     
     // 使用嵌入的字体数据加载字体，而不是从文件系统加载
     match load_ttf_font_from_bytes(CHINESE_FONT_DATA) {
         Ok(font) => {
             *CHINESE_FONT.lock().unwrap() = Some(font);
-            println!("成功加载中文字体");
+            log_info!("成功加载中文字体");
         },
         Err(err) => {
-            println!("无法加载中文字体: {:?}", err);
+            log_error!("无法加载中文字体: {:?}", err);
             // 在WASM环境中不触发panic
             #[cfg(target_arch = "wasm32")]
-            println!("在WASM环境中继续运行，将使用默认字体");
+            log_info!("在WASM环境中继续运行，将使用默认字体");
         }
     }
     
@@ -1417,22 +1426,22 @@ async fn run_game() {
         if game.state != previous_state {
             match game.state {
                 GameState::MainMenu => {
-                    println!("进入主菜单状态");
+                    log_info!("进入主菜单状态");
                     // 重置一些状态或设置主菜单初始值
                 },
                 GameState::Playing => {
                     // 从菜单或游戏结束进入游戏状态时，重置一些数据
                     // （大部分重置已在update_game中处理）
-                    println!("进入游戏状态");
+                    log_info!("进入游戏状态");
                 },
                 GameState::Leaderboard => {
                     // 进入排行榜状态时，加载数据
-                    println!("进入排行榜状态，加载数据...");
+                    log_info!("进入排行榜状态，加载数据...");
                     game.load_leaderboard().await;
                 },
                 GameState::GameOver => {
                     // 进入游戏结束状态时，上传分数
-                    println!("进入游戏结束状态");
+                    log_info!("进入游戏结束状态");
                     if game.score > game.save_data.high_score {
                         game.save_data.high_score = game.score;
                         game.save_data.save();
@@ -1442,7 +1451,7 @@ async fn run_game() {
                     }
                 },
                 GameState::Menu => {
-                    println!("返回菜单");
+                    log_info!("返回菜单");
                     // 如果需要，可以在这里重置特定菜单状态
                 }
             }
@@ -1646,9 +1655,16 @@ fn draw_main_menu(game: &mut Game) {
         
         // 排行榜按钮点击
         if leaderboard_button_rect.contains(Vec2::new(mouse_pos.0, mouse_pos.1)) {
-            if game.show_leaderboard_button {
-                game.state = GameState::Leaderboard;
-                // 可以在这里加载排行榜数据
+            log_info!("检查排行榜按钮状态: show_button={}, button_rect={:?}",
+                     game.show_leaderboard_button, leaderboard_button_rect);
+            if leaderboard_button_rect.contains(Vec2::new(mouse_pos.0, mouse_pos.1)) {
+                log_info!("排行榜按钮被点击"); // 添加日志确认点击检测
+                if game.show_leaderboard_button {
+                    log_info!("状态将切换到 Leaderboard"); // 添加日志确认状态切换
+                    game.state = GameState::Leaderboard;
+                } else {
+                    log_warn!("排行榜按钮被点击，但 show_leaderboard_button 为 false");
+                }
             }
         }
     }
