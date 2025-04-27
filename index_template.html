@@ -141,8 +141,8 @@
                 const userInfo = SceSDK.get_user_info();
                 return JSON.stringify({
                     success: true,
-                    userId: userInfo.user_id,
-                    userName: userInfo.name
+                    user_id: userInfo.user_id,
+                    name: userInfo.name
                 });
             } catch (error) {
                 console.error("SCE SDK登录失败:", error);
@@ -188,7 +188,7 @@
                     success: result.code === 0,
                     rank: result.rank,
                     score: result.value,
-                    userId: result.user_id
+                    user_id: result.user_id
                 });
             } catch (error) {
                 console.error("获取用户排名失败:", error);

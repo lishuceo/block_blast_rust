@@ -210,11 +210,11 @@ pub async fn init_cloud_service() -> CloudState {
                                 if let Some(login_success) = login_json.get("success").and_then(|v| v.as_bool()) {
                                     if login_success {
                                         log_info!("登录成功");
-                                        let user_id = login_json.get("userId")
+                                        let user_id = login_json.get("user_id")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or(&format!("user_{}", rand::gen_range(10000, 99999)))
                                             .to_string();
-                                        let user_name = login_json.get("userName")
+                                        let user_name = login_json.get("name")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or(&format!("Player_{}", rand::gen_range(100, 999)))
                                             .to_string();
@@ -341,7 +341,7 @@ pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
                         for (i, item) in data.iter().enumerate() {
                             let user_id = item.get("user_id").and_then(|v| v.as_str())
                                 .unwrap_or("unknown").to_string();
-                            let name = item.get("user_name").and_then(|v| v.as_str())
+                            let name = item.get("name").and_then(|v| v.as_str())
                                 .unwrap_or("未知玩家").to_string();
                             let score = item.get("value").and_then(|v| v.as_u64())
                                 .unwrap_or(0) as u32;
@@ -418,7 +418,7 @@ pub async fn get_player_rank() -> Result<(), String> {
                         if let Some(true) = json.get("success").and_then(|v| v.as_bool()) {
                             let rank = json.get("rank").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                             let score = json.get("score").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                            let result_user_id = json.get("userId").and_then(|v| v.as_str()).unwrap_or(&user_id).to_string();
+                            let result_user_id = json.get("user_id").and_then(|v| v.as_str()).unwrap_or(&user_id).to_string();
                             
                             let player_rank = PlayerRank {
                                 user_id: result_user_id,
