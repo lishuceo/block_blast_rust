@@ -7,6 +7,8 @@ fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
     // 亮色和暗色偏移量
     let light_factor = 0.4;
     let dark_factor = 0.4;
+    let mid_light_factor = 0.2; // 中等亮色偏移量
+    let mid_dark_factor = 0.2; // 中等暗色偏移量
     
     // 边缘厚度
     let border = size * 0.15;
@@ -16,6 +18,22 @@ fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
         (color.r + light_factor).min(1.0),
         (color.g + light_factor).min(1.0),
         (color.b + light_factor).min(1.0),
+        color.a
+    );
+    
+    // 创建中等亮色（比light暗）
+    let mid_light_color = Color::new(
+        (color.r + mid_light_factor).min(1.0),
+        (color.g + mid_light_factor).min(1.0),
+        (color.b + mid_light_factor).min(1.0),
+        color.a
+    );
+    
+    // 创建中等暗色（比dark浅）
+    let mid_dark_color = Color::new(
+        (color.r - mid_dark_factor).max(0.0),
+        (color.g - mid_dark_factor).max(0.0),
+        (color.b - mid_dark_factor).max(0.0),
         color.a
     );
     
@@ -44,32 +62,32 @@ fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
         light_color
     );
     
-    // 左边 - 亮色
+    // 左边 - 中等亮色
     draw_triangle(
         Vec2::new(x, y), 
         Vec2::new(x, y + size), 
         Vec2::new(x + border, y + size - border),
-        light_color
+        mid_light_color
     );
     draw_triangle(
         Vec2::new(x, y), 
         Vec2::new(x + border, y + border), 
         Vec2::new(x + border, y + size - border),
-        light_color
+        mid_light_color
     );
     
-    // 右边 - 暗色
+    // 右边 - 中等暗色
     draw_triangle(
         Vec2::new(x + size, y), 
         Vec2::new(x + size, y + size), 
         Vec2::new(x + size - border, y + size - border),
-        dark_color
+        mid_dark_color
     );
     draw_triangle(
         Vec2::new(x + size, y), 
         Vec2::new(x + size - border, y + border), 
         Vec2::new(x + size - border, y + size - border),
-        dark_color
+        mid_dark_color
     );
     
     // 下边 - 暗色
