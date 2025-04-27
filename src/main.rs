@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use cloud::PlayerRank;
+use block_blast::GameMode; // 使用库名导入
 
 // 全局颜色常量 - 基于 #3C569E 的配色方案
 const COLOR_PRIMARY: Color = Color { r: 0.235, g: 0.337, b: 0.62, a: 1.0 };         // 主色 #3C569E
@@ -17,6 +18,7 @@ pub mod save;
 pub mod effects;
 pub mod cloud;
 pub mod log;
+pub mod drawing; // 添加 drawing 模块声明
 
 // 使用宏导入
 #[macro_use]
@@ -84,95 +86,6 @@ pub extern "C" fn wasm_init() {
         log_error!("{}", message);
         // 这里可以添加显示错误信息的UI代码
     }));
-}
-
-// 更高效的立体感方块绘制函数
-pub fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
-    // 获取DPI缩放因子
-    let dpi_scale = get_dpi_scale();
-    
-    // 亮色和暗色偏移量
-    let light_factor = 0.4;
-    let dark_factor = 0.4;
-    
-    // 边缘厚度 - 在高DPI屏幕上相应调整
-    let border = size * 0.15;
-    
-    // 创建亮色和暗色
-    let light_color = Color::new(
-        (color.r + light_factor).min(1.0),
-        (color.g + light_factor).min(1.0),
-        (color.b + light_factor).min(1.0),
-        color.a
-    );
-    
-    let dark_color = Color::new(
-        (color.r - dark_factor).max(0.0),
-        (color.g - dark_factor).max(0.0),
-        (color.b - dark_factor).max(0.0),
-        color.a
-    );
-    
-    // 在高DPI设备上使用抗锯齿绘制，提高视觉质量
-    // 1. 先绘制主体
-    draw_rectangle(x, y, size, size, color);
-    
-    // 2. 绘制四个边（只需要4次绘制调用）
-    // 上边 - 亮色
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x + size, y), 
-        Vec2::new(x + size - border, y + border),
-        light_color
-    );
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x + border, y + border), 
-        Vec2::new(x + size - border, y + border),
-        light_color
-    );
-    
-    // 左边 - 亮色
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x, y + size), 
-        Vec2::new(x + border, y + size - border),
-        light_color
-    );
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x + border, y + border), 
-        Vec2::new(x + border, y + size - border),
-        light_color
-    );
-    
-    // 右边 - 暗色
-    draw_triangle(
-        Vec2::new(x + size, y), 
-        Vec2::new(x + size, y + size), 
-        Vec2::new(x + size - border, y + size - border),
-        dark_color
-    );
-    draw_triangle(
-        Vec2::new(x + size, y), 
-        Vec2::new(x + size - border, y + border), 
-        Vec2::new(x + size - border, y + size - border),
-        dark_color
-    );
-    
-    // 下边 - 暗色
-    draw_triangle(
-        Vec2::new(x, y + size), 
-        Vec2::new(x + size, y + size), 
-        Vec2::new(x + size - border, y + size - border),
-        dark_color
-    );
-    draw_triangle(
-        Vec2::new(x, y + size), 
-        Vec2::new(x + border, y + size - border), 
-        Vec2::new(x + size - border, y + size - border),
-        dark_color
-    );
 }
 
 // 绘制中文文本的辅助函数(支持真正的中文渲染)
@@ -283,6 +196,17 @@ enum GameState {
     Leaderboard, // 新增排行榜状态
 }
 
+// 新增：动画块数据
+#[derive(Clone)] // 需要 Clone，因为 Option<T> 要求 T: Clone
+struct AnimatingBlockData {
+    block_idx: usize,
+    start_pos: Vec2,
+    target_pos: Vec2,
+    current_pos: Vec2,
+    timer: f32,      // 0.0 to 1.0
+    duration: f32,   // in seconds
+}
+
 // 游戏数据
 struct Game {
     state: GameState,
@@ -291,12 +215,15 @@ struct Game {
     score: u32,
     combo: u32,
     drag_block_idx: Option<usize>,    // 当前拖拽的方块索引
-    drag_pos: Option<Vec2>,           // 拖拽位置
+    drag_pos: Option<Vec2>,           // 拖拽位置 (左上角单元格中心)
     drag_offset: Vec2,                // 新增：拖动偏移量，记录手指与方块的初始偏移
-    save_data: save::SaveData,
-    easy_mode: bool,                  // 简单模式标志
-    simple_block_chance: i32,         // 简单方块生成概率 (0-100)
-    standard_block_chance: i32,       // 标准方块生成概率 (0-100)
+    drag_original_pos: Option<Vec2>,  // 新增：拖拽开始时，方块在底部区域的原始中心位置
+    save_data: save::SaveData,        // 保留 SaveData 结构，但最高分不再使用它
+    cloud_high_score: Option<u32>,    // 新增：从云端获取的最高分
+    needs_score_upload: bool,         // 新增：标记是否需要在主循环中上传分数
+    game_mode: GameMode,              // 新增：游戏模式枚举
+    simple_block_chance: i32,         // 保留，但可能不再直接使用
+    standard_block_chance: i32,       // 保留，但可能不再直接使用
     blocks_per_generation: usize,     // 每次生成的方块数量 (1-5)
     effects: effects::Effects,         // 特效系统
     
@@ -320,6 +247,9 @@ struct Game {
     transition_from: GameState,       // 过渡起始状态
     transition_to: GameState,         // 过渡目标状态
     transition_phase: bool,           // 过渡阶段 (false=淡出, true=淡入)
+    
+    // 新增：用于方块返回动画
+    animating_block: Option<AnimatingBlockData>,
 }
 
 impl Game {
@@ -333,10 +263,13 @@ impl Game {
             drag_block_idx: None,
             drag_pos: None,
             drag_offset: Vec2::new(0.0, 0.0), // 初始化为零偏移
-            save_data: save::SaveData::load(),
-            easy_mode: true,          // 默认开启简单模式
-            simple_block_chance: 30,  // 简单方块30%概率
-            standard_block_chance: 60, // 标准方块60%概率
+            drag_original_pos: None, // 初始化为 None
+            save_data: save::SaveData::load(), // 仍然加载，但不再用于最高分判断
+            cloud_high_score: None,    // 初始化为 None
+            needs_score_upload: false, // 初始化为 false
+            game_mode: GameMode::Happy, // 默认设为简单模式
+            simple_block_chance: 30,  // 保留默认值，但可能不再使用
+            standard_block_chance: 60, // 保留默认值，但可能不再使用
             blocks_per_generation: 3, // 默认生成3个方块
             effects: effects::Effects::new(), // 初始化特效系统
             
@@ -360,6 +293,8 @@ impl Game {
             transition_from: GameState::MainMenu,
             transition_to: GameState::MainMenu,
             transition_phase: false,
+            
+            animating_block: None, // 初始化为 None
         }
     }
     
@@ -369,7 +304,8 @@ impl Game {
         
         // 随机生成设定数量的方块
         for _ in 0..self.blocks_per_generation {
-            let block = block::BlockShape::random_with_chances(self.simple_block_chance, self.standard_block_chance);
+            // let block = block::BlockShape::generate_for_mode(self.easy_mode); // 使用旧的布尔值
+            let block = block::BlockShape::generate_for_mode(self.game_mode); // 使用新的枚举值
             self.current_blocks.push(block);
         }
     }
@@ -430,6 +366,10 @@ impl Game {
             
             if block_rect.contains(mouse_pos) {
                 self.drag_block_idx = Some(idx);
+                
+                // --- 记录原始位置 --- 
+                self.drag_original_pos = Some(Vec2::new(block_pos_x, block_pos_y));
+                // ---------------------
                 
                 // 计算向上的偏移量 - 使方块在手指上方显示，但保持中心点对齐
                 let touch_offset_y = -cell_size * 2.0; // 向上偏移2个格子的距离
@@ -842,7 +782,8 @@ fn draw_game(game: &mut Game) {
     
     // 显示最高分
     draw_chinese_text(
-        &format!("最高分: {}", game.save_data.high_score), 
+        // &format!("最高分: {}", game.save_data.high_score), 
+        &format!("最高分: {}", game.cloud_high_score.unwrap_or(0)), // 使用云端最高分
         screen_width() - 100.0, // 向右调整，更美观
         score_y, 
         15.0 * dpi_scale, 
@@ -869,7 +810,6 @@ fn draw_game(game: &mut Game) {
     // 确保底部区域至少有屏幕高度的一定比例
     let min_bottom_height = screen_height() * 0.2; // 至少占屏幕高度的20%
     let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
-    // 移除绘制底部区域独立背景的代码
     
     // 绘制可选方块区域的标题
     draw_chinese_text(
@@ -900,17 +840,59 @@ fn draw_game(game: &mut Game) {
     let total_width = block_size * game.current_blocks.len() as f32 + block_margin * (game.current_blocks.len() as f32 - 1.0);
     let start_x = (screen_width() - total_width) / 2.0;
     
+    // --- 绘制底部可选方块 --- 
     for (idx, block) in game.current_blocks.iter().enumerate() {
         let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
         let block_pos_y = blocks_y;
         
+        // 检查是否是正在返回动画的块，如果是则跳过
+        if let Some(anim_data) = &game.animating_block {
+            if anim_data.block_idx == idx {
+                continue; // 跳过绘制，因为它由动画逻辑绘制
+            }
+        }
+        
+        // 检查是否是正在拖拽的块，如果是则绘制透明占位符
+        let draw_color = if game.drag_block_idx == Some(idx) {
+            Color::new(block.color.r/2.0, block.color.g/2.0, block.color.b/2.0, 0.3) // 手动创建透明颜色
+        } else {
+            block.color // 正常颜色
+        };
+
         // 绘制方块 - 根据方块尺寸调整单元格大小
         let cell_scale = block_size / (cell_size * 5.0); // 调整单元格大小与方块大小的比例
         for &(dx, dy) in &block.cells {
             let x = block_pos_x + dx as f32 * cell_size * cell_scale;
             let y = block_pos_y + dy as f32 * cell_size * cell_scale;
-            draw_cube_block(x - cell_size * cell_scale / 2.0, y - cell_size * cell_scale / 2.0, 
-                          cell_size * cell_scale, block.color);
+            drawing::draw_cube_block(x - cell_size * cell_scale / 2.0, y - cell_size * cell_scale / 2.0, 
+                          cell_size * cell_scale, draw_color);
+        }
+    }
+    
+    // --- 绘制返回动画中的方块 --- 
+    if let Some(anim_data) = &game.animating_block {
+        // 确保索引有效
+        if anim_data.block_idx < game.current_blocks.len() {
+            let block = &game.current_blocks[anim_data.block_idx];
+            
+            // 使用动画的 current_pos 绘制
+            // 注意：动画位置是中心点，需要调整单元格绘制
+            // 找到最左上角的cell
+            let mut min_dx = i32::MAX;
+            let mut min_dy = i32::MAX;
+            for &(dx, dy) in &block.cells {
+                if dx < min_dx { min_dx = dx; }
+                if dy < min_dy { min_dy = dy; }
+            }
+            
+            // 绘制时使用网格单元格大小 (cell_size)，因为它是移动到网格或从网格返回
+            for &(dx, dy) in &block.cells {
+                let rel_dx = dx - min_dx;
+                let rel_dy = dy - min_dy;
+                let x = anim_data.current_pos.x + rel_dx as f32 * cell_size;
+                let y = anim_data.current_pos.y + rel_dy as f32 * cell_size;
+                drawing::draw_cube_block(x - cell_size/2.0, y - cell_size/2.0, cell_size, block.color);
+            }
         }
     }
     
@@ -972,21 +954,18 @@ fn draw_game(game: &mut Game) {
                     if can_place {
                         // 半透明绿色
                         draw_rectangle(preview_x, preview_y, cell_size, cell_size, 
-                                       Color::new(0.2, 0.8, 0.2, 0.4));
+                                       Color::new(0.2, 0.8, 0.2, 0.7));
                         
-                        // 如果是校正后的位置，添加闪烁边框提示用户
-                        if corrected_x != grid_x || corrected_y != grid_y {
-                            let pulse = (get_time() * 5.0).sin() * 0.5 + 0.5;
-                            draw_rectangle_lines(
-                                preview_x, preview_y, cell_size, cell_size,
-                                2.0 * dpi_scale, // 线宽考虑DPI缩放
-                                Color::new(1.0, 1.0, 1.0, 0.5 + 0.3 * pulse as f32)
-                            );
-                        }
+                        // // 如果是校正后的位置，添加闪烁边框提示用户
+                        // if corrected_x != grid_x || corrected_y != grid_y {
+                        //     let pulse = (get_time() * 5.0).sin() * 0.5 + 0.5;
+                        //     drawing::draw_cube_block(preview_x, preview_y, cell_size, 
+                        //                Color::new(1.0, 1.0, 1.0, 0.5 + 0.3 * pulse as f32));
+                        // }
                     } else {
                         // 半透明红色
                         draw_rectangle(preview_x, preview_y, cell_size, cell_size, 
-                                       Color::new(0.8, 0.2, 0.2, 0.4));
+                                       Color::new(0.8, 0.2, 0.2, 0.7));
                     }
                 }
             }
@@ -1002,7 +981,7 @@ fn draw_game(game: &mut Game) {
                 let y = pos.y + rel_dy as f32 * cell_size;
                 
                 // 绘制立体方块
-                draw_cube_block(x - cell_size/2.0, y - cell_size/2.0, cell_size, block.color);
+                drawing::draw_cube_block(x - cell_size/2.0, y - cell_size/2.0, cell_size, block.color);
             }
         }
     }
@@ -1076,7 +1055,7 @@ fn draw_game(game: &mut Game) {
             
             // 绘制最高分
             let high_score_y = leaderboard_btn_y + btn_height + 60.0 * dpi_scale;
-            draw_chinese_text(&format!("最高分: {}", game.save_data.high_score), 
+            draw_chinese_text(&format!("最高分: {}", game.cloud_high_score.unwrap_or(0)), 
                      width / 2.0, 
                      high_score_y, 
                      22.0 * dpi_scale, 
@@ -1101,11 +1080,12 @@ fn draw_game(game: &mut Game) {
                      Color::new(1.0, 0.8, 0.2, 1.0));
             
             // 绘制最高分
-            let new_record = game.score > game.save_data.high_score;
+            let new_record = game.score > game.cloud_high_score.unwrap_or(0); // 与云端比较
             let high_score_text = if new_record {
                 format!("新纪录! {}", game.score)
             } else {
-                format!("最高分: {}", game.save_data.high_score)
+                // format!("最高分: {}", game.save_data.high_score)
+                format!("最高分: {}", game.cloud_high_score.unwrap_or(0)) // 使用云端最高分
             };
             
             draw_chinese_text(&high_score_text, 
@@ -1165,14 +1145,42 @@ fn draw_game(game: &mut Game) {
 
 // 更新游戏状态
 fn update_game(game: &mut Game) {
+    let dt = get_frame_time(); // 获取时间增量
+    
     // 更新粒子效果
-    game.effects.update(get_frame_time());
+    game.effects.update(dt);
+    
+    // 更新返回动画
+    if let Some(anim_data) = game.animating_block.as_mut() {
+        anim_data.timer += dt / anim_data.duration;
+        if anim_data.timer >= 1.0 {
+            // 动画结束
+            game.animating_block = None;
+        } else {
+            // 线性插值计算当前位置
+            let t = anim_data.timer;
+            anim_data.current_pos = anim_data.start_pos.lerp(anim_data.target_pos, t);
+            // 可以添加缓动函数，例如 ease-out: t * (2.0 - t)
+            // let t = t * (2.0 - t); 
+            // anim_data.current_pos = anim_data.start_pos.lerp(anim_data.target_pos, t);
+        }
+        // 如果动画正在进行，则不处理其他游戏逻辑（可选，但可以防止动画期间的干扰）
+        // return; 
+    }
     
     // 检测按空格键切换难度模式
     if is_key_pressed(KeyCode::Space) {
-        game.easy_mode = !game.easy_mode;
+        // 循环切换模式
+        game.game_mode = match game.game_mode {
+            GameMode::Easy => GameMode::Normal,
+            GameMode::Normal => GameMode::Happy,
+            GameMode::Happy => GameMode::Easy,
+        };
+        log_info!("模式切换为: {:?}", game.game_mode);
     }
     
+    // 移除调整概率和生成数量的代码，因为模式现在由池控制
+    /*
     // 调整简单方块概率 (±10%)
     if is_key_pressed(KeyCode::Key1) && game.simple_block_chance > 0 {
         game.simple_block_chance = (game.simple_block_chance - 10).max(0);
@@ -1197,6 +1205,7 @@ fn update_game(game: &mut Game) {
                 game.simple_block_chance, game.standard_block_chance));
         }
     }
+    */
     
     match game.state {
         GameState::MainMenu => {
@@ -1328,137 +1337,102 @@ fn update_game(game: &mut Game) {
             // 在鼠标释放时处理方块放置
             if is_mouse_button_released(MouseButton::Left) && game.drag_block_idx.is_some() {
                 if let Some(block_idx) = game.drag_block_idx {
-                    if let Some(pos) = game.drag_pos {
+                    if let Some(pos) = game.drag_pos { // pos is the top-left cell's center
                         let block = &game.current_blocks[block_idx];
                         
-                        // 计算网格大小和位置
+                        // --- 网格计算 (与 draw_game 一致) ---
                         let grid_size = screen_width() * 0.9;
                         let cell_size = grid_size / 8.0;
                         let grid_offset_x = (screen_width() - grid_size) / 2.0;
                         let grid_offset_y = screen_height() * 0.07;
+                        // --- 网格计算结束 ---
                         
-                        // 找到最左上角的cell（最小x和y坐标的cell）
+                        // --- 原始方块位置计算 (与 draw_game 绘制底部方块一致) ---
+                        let is_small_screen = screen_height() < 600.0;
+                        let spacing = if is_small_screen { 20.0 } else { 30.0 };
+                        let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
+                        let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
+                        let min_bottom_height = screen_height() * 0.2;
+                        let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
+                        let blocks_y = bottom_area_top + bottom_area_height / 2.0;
+                        let max_block_size_calc = cell_size * 4.0;
+                        let block_size_calc = if game.blocks_per_generation <= 2 {
+                            max_block_size_calc
+                        } else {
+                            let width_factor = if is_small_screen { 0.80 } else { 0.85 };
+                            (screen_width() * width_factor) / (game.blocks_per_generation as f32 * 1.2)
+                        };
+                        let block_margin_calc = block_size_calc * 0.2;
+                        // 注意：这里需要计算所有可能位置的总宽度，即使某些块已被移除
+                        let total_possible_width = block_size_calc * game.blocks_per_generation as f32 
+                                                 + block_margin_calc * (game.blocks_per_generation as f32 - 1.0);
+                        let start_x_calc = (screen_width() - total_possible_width) / 2.0;
+                        // 计算当前拖动块的原始目标位置中心点 (需要假设它在 current_blocks 中的原始位置)
+                        // TODO: This calculation might be complex if blocks are removed. A better way might be needed.
+                        // Let's assume for now we calculate based on its *current* index if it were present
+                        // Need a reliable way to find original position index if blocks_per_generation changes
+                        // --- Simplified target pos calculation for now --- 
+                        let target_pos_x = start_x_calc + block_size_calc / 2.0 + block_idx as f32 * (block_size_calc + block_margin_calc);
+                        let target_pos_y = blocks_y;
+                        let original_bottom_pos = Vec2::new(target_pos_x, target_pos_y);
+                        // --- 原始方块位置计算结束 ---
+                        
+                        // 找到最左上角的cell (用于计算网格坐标)
                         let mut min_dx = i32::MAX;
                         let mut min_dy = i32::MAX;
                         for &(dx, dy) in &block.cells {
-                            if dx < min_dx {
-                                min_dx = dx;
-                            }
-                            if dy < min_dy {
-                                min_dy = dy;
-                            }
+                            if dx < min_dx { min_dx = dx; }
+                            if dy < min_dy { min_dy = dy; }
                         }
                         
-                        // 计算左上角cell在网格中的坐标
-                        // pos现在是左上角cell的中心点
+                        // 计算目标网格坐标 (以左上角cell为基准)
                         let grid_top_left_x = ((pos.x - grid_offset_x) / cell_size).floor();
                         let grid_top_left_y = ((pos.y - grid_offset_y) / cell_size).floor();
-                        
-                        // 计算网格坐标（以左上角cell为基准）
                         let grid_x = grid_top_left_x as i32 - min_dx;
                         let grid_y = grid_top_left_y as i32 - min_dy;
                         
-                        // 检查并处理方块放置 - 使用容错版本
-                        // 先判断是否在扩展的有效范围内
-                        let is_near_valid = grid_x >= -1 && grid_x < 9 && grid_y >= -1 && grid_y < 9;
+                        // 检查是否在网格或附近
+                        let is_near_grid = pos.x >= grid_offset_x - cell_size 
+                                         && pos.x <= grid_offset_x + grid_size + cell_size
+                                         && pos.y >= grid_offset_y - cell_size
+                                         && pos.y <= grid_offset_y + grid_size + cell_size;
                         
-                        if is_near_valid {
-                            // 使用容错功能找到合适的放置位置
+                        let mut placed_successfully = false;
+                        if is_near_grid { // 只在靠近网格时尝试放置
                             let (can_place, corrected_x, corrected_y) = 
                                 game.grid.can_place_block_with_tolerance(block, grid_x, grid_y, 1);
                             
                             if can_place {
-                                // 执行放置 - 使用校正后的位置
+                                placed_successfully = true;
                                 game.grid.place_block(block, corrected_x, corrected_y);
                                 
-                                // 如果位置被校正了，播放提示音效或视觉效果
                                 if corrected_x != grid_x || corrected_y != grid_y {
-                                    log_info!("位置已自动校正: 从({},{})到({},{})", 
-                                             grid_x, grid_y, corrected_x, corrected_y);
+                                    log_info!("位置已自动校正: 从({},{})到({},{})", grid_x, grid_y, corrected_x, corrected_y);
                                     // TODO: 添加声音或特效提示
                                 }
                                 
-                                // 首先记录当前哪些行和列是满的（将被消除）
+                                // --- 消除和得分逻辑 (保持不变) ---
                                 let mut filled_rows = [false; 8];
                                 let mut filled_cols = [false; 8];
+                                for y in 0..8 { if (0..8).all(|x| game.grid.cells[y][x].is_some()) { filled_rows[y] = true; } }
+                                for x in 0..8 { if (0..8).all(|y| game.grid.cells[y][x].is_some()) { filled_cols[x] = true; } }
                                 
-                                // 检查哪些行是满的
-                                for y in 0..8 {
-                                    let mut row_filled = true;
-                                    for x in 0..8 {
-                                        if game.grid.cells[y][x].is_none() {
-                                            row_filled = false;
-                                            break;
-                                        }
-                                    }
-                                    filled_rows[y] = row_filled;
-                                }
-                                
-                                // 检查哪些列是满的
-                                for x in 0..8 {
-                                    let mut col_filled = true;
-                                    for y in 0..8 {
-                                        if game.grid.cells[y][x].is_none() {
-                                            col_filled = false;
-                                            break;
-                                        }
-                                    }
-                                    filled_cols[x] = col_filled;
-                                }
-                                
-                                // 检查消除行和列
                                 let (rows_cleared, cols_cleared) = game.grid.check_and_clear();
                                 let cleared = rows_cleared + cols_cleared;
                                 
                                 if cleared > 0 {
-                                    // 只在实际被消除的格子位置显示粒子效果
-                                    // 对于被消除的行
-                                    for y in 0..8 {
-                                        if filled_rows[y] {
-                                            for x in 0..8 {
-                                                let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0;
-                                                let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0;
-                                                // 使用方块的颜色
-                                                game.effects.show_clear_effect(effect_x, effect_y, block.color);
-                                            }
-                                        }
-                                    }
+                                    // 特效
+                                    for y in 0..8 { if filled_rows[y] { for x in 0..8 { let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0; let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0; game.effects.show_clear_effect(effect_x, effect_y, block.color); } } } // 使用金色
+                                    for x in 0..8 { if filled_cols[x] { for y in 0..8 { if !filled_rows[y] { let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0; let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0; game.effects.show_clear_effect(effect_x, effect_y, block.color); } } } } // 使用金色
+                                    if game.combo >= 2 { let combo_x = screen_width() / 2.0; let combo_y = grid_offset_y + grid_size / 2.0; game.effects.show_combo_effect(game.combo, combo_x, combo_y); }
                                     
-                                    // 对于被消除的列
-                                    for x in 0..8 {
-                                        if filled_cols[x] {
-                                            for y in 0..8 {
-                                                // 避免重复在行列交点添加两次粒子效果
-                                                if !filled_rows[y] {
-                                                    let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0;
-                                                    let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0;
-                                                    // 使用方块的颜色
-                                                    game.effects.show_clear_effect(effect_x, effect_y, block.color);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    
-                                    // 高combo时显示特殊效果
-                                    if game.combo >= 2 {
-                                        let combo_x = screen_width() / 2.0;
-                                        let combo_y = grid_offset_y + grid_size / 2.0;
-                                        game.effects.show_combo_effect(game.combo, combo_x, combo_y);
-                                    }
-                                    
-                                    // 更新分数和连击
+                                    // 分数和连击
                                     game.combo += 1;
                                     game.score += cleared * 100 * game.combo;
-                                    
-                                    // 更新最高分
-                                    if game.score > game.save_data.high_score {
-                                        game.save_data.high_score = game.score;
-                                        game.save_data.save();
-                                    }
                                 } else {
-                                    // 重置连击
                                     game.combo = 0;
                                 }
+                                // --- 消除和得分逻辑结束 ---
                                 
                                 // 移除已使用的方块
                                 game.current_blocks.remove(block_idx);
@@ -1468,12 +1442,31 @@ fn update_game(game: &mut Game) {
                                     game.generate_blocks();
                                 }
                             }
+                        } // end if is_near_grid
+                        
+                        // 如果放置失败，启动返回动画
+                        if !placed_successfully {
+                            log_info!("放置无效，启动返回动画 for block {}", block_idx);
+                            let start_pos = pos; // 使用松手时的计算位置作为起点
+                            // 获取存储的原始位置，如果不存在则使用重新计算的位置作为后备
+                            let target_pos = game.drag_original_pos.unwrap_or(original_bottom_pos);
+                            let animation_data = AnimatingBlockData {
+                                block_idx,
+                                start_pos,
+                                target_pos: target_pos, // 使用存储的原始位置
+                                current_pos: start_pos, // 初始位置
+                                timer: 0.0,
+                                duration: 0.15, // 动画持续时间 (秒)
+                            };
+                            game.animating_block = Some(animation_data);
+                            // 不移除 game.current_blocks[block_idx]
                         }
                     }
                     
-                    // 重置拖拽状态
+                    // 重置拖拽状态 (无论成功与否)
                     game.drag_block_idx = None;
                     game.drag_pos = None;
+                    game.drag_original_pos = None; // 清理状态
                 }
             }
             
@@ -1496,8 +1489,7 @@ fn update_game(game: &mut Game) {
                 // 注意：这里的 Y 坐标要和 draw_game 中绘制排行榜按钮的 Y 坐标匹配
                 // 在 draw_game 的 GameOver 分支中，是 height / 2.0 + 80.0 (原始值) 
                 // 但我们需要使用经过DPI缩放的值进行比较，或者重新计算draw_game中的值
-                // 暂时假设draw_game中的按钮绘制位置是固定的像素值，不依赖DPI（需要检查draw_game）
-                // 假设draw_game中GameOver的按钮位置是相对于中心点固定的
+                // 暂时假设draw_game中GameOver的按钮位置是相对于中心点固定的
                 let leaderboard_btn_y = height / 2.0 + 100.0; // 调整了draw_game GameOver按钮位置，这里保持一致
                 let leaderboard_btn_rect = Rect::new(leaderboard_btn_x, leaderboard_btn_y, leaderboard_btn_width, leaderboard_btn_height);
                 
@@ -1568,6 +1560,32 @@ async fn run_game() {
     
     // 初始化云服务
     game.init_cloud().await;
+    
+    // 尝试获取玩家初始最高分 (如果云服务初始化成功)
+    if game.show_leaderboard_button {
+        log_info!("尝试获取玩家初始云端最高分...");
+        match cloud::get_player_rank().await {
+            Ok(_) => {
+                // 从全局状态获取数据
+                let (_, _, _, player_rank) = cloud::get_leaderboard_data();
+                if let Some(rank) = player_rank {
+                    game.cloud_high_score = Some(rank.score);
+                    log_info!("获取到初始云端最高分: {}", rank.score);
+                } else {
+                    log_info!("玩家尚无云端排名/分数记录。");
+                    game.cloud_high_score = Some(0); // 认为是 0
+                }
+            },
+            Err(e) => {
+                log_error!("获取玩家初始排名/分数失败: {}", e);
+                // 在获取失败时，可以暂时将其视为0，允许玩家设置第一个分数
+                game.cloud_high_score = Some(0); 
+            }
+        }
+    } else {
+        log_warn!("云服务未初始化，无法获取初始最高分，将使用 0。");
+        game.cloud_high_score = Some(0); // 云服务未连接，视为 0
+    }
 
     // macroquad没有直接的set_target_fps函数
     // 可以改用适当的帧速率控制
@@ -1622,15 +1640,25 @@ async fn run_game() {
                     }
                 },
                 GameState::GameOver => {
-                    // 进入游戏结束状态时，上传分数
+                    // 进入游戏结束状态时，检查是否需要上传最终分数
                     log_info!("进入游戏结束状态");
-                    if game.score > game.save_data.high_score {
-                        game.save_data.high_score = game.score;
-                        game.save_data.save();
+                    // 检查是否是新高分 (与云端比较)
+                    if game.score > game.cloud_high_score.unwrap_or(0) {
+                         log_info!("游戏结束时检测到新高分! {} -> {}. 准备上传...", game.cloud_high_score.unwrap_or(0), game.score);
+                         game.cloud_high_score = Some(game.score); // 更新本地缓存的最高分
+                         // 移除本地保存调用: game.save_data.save();
+                         
+                         // 如果云服务可用且分数尚未上传，则上传
+                         if game.show_leaderboard_button && !game.score_uploaded {
+                             game.upload_score().await; // 等待上传完成
+                         }
+                    } else {
+                        log_info!("最终分数 {} 未超过云端最高分 {}", game.score, game.cloud_high_score.unwrap_or(0));
                     }
-                    if game.show_leaderboard_button && !game.score_uploaded {
-                        game.upload_score().await;
-                    }
+                    // 确保即使不是新高分，如果之前上传失败了也再试一次 (或者移除这个逻辑?)
+                    // if game.show_leaderboard_button && !game.score_uploaded {
+                    //     game.upload_score().await;
+                    // }
                 },
                 GameState::Menu => {
                     log_info!("返回菜单");
@@ -1715,6 +1743,14 @@ async fn run_game() {
                     update_game(&mut game); // 让update有机会处理Leaderboard状态（虽然目前为空）
                 }
             }
+        }
+        
+        // 在主循环中处理延迟的分数上传
+        if game.needs_score_upload && game.show_leaderboard_button && !game.score_uploaded {
+            log_info!("处理延迟的分数上传...");
+            // 注意：upload_score 内部会设置 score_uploaded = true
+            game.upload_score().await; 
+            game.needs_score_upload = false; // 重置标志
         }
         
         // 等待下一帧
@@ -1814,18 +1850,16 @@ fn draw_main_menu(game: &mut Game) {
         WHITE
     );
     
-    // 移除"排行榜未连接"提示
-    
     // 绘制T形俄罗斯方块 - 使用简单方块绘制，不使用旋转动画
-    let block_size = 50.0 * dpi_scale;
+    let block_size = 40.0 * dpi_scale;
     let t_block_center_x = center_x;
-    let t_block_center_y = height * 0.75;
+    let t_block_center_y = height * 0.85;
     
     // 绘制T形方块（紫色）
-    let block_color = Color::new(0.8, 0.3, 0.9, 1.0);
+    let block_color = Color::new(0.553, 0.369, 0.816, 1.0);
     
     // 上方方块 - 使用立体方块绘制
-    draw_cube_block(
+    drawing::draw_cube_block(
         t_block_center_x - block_size / 2.0, 
         t_block_center_y - block_size * 1.5, 
         block_size, 
@@ -1833,7 +1867,7 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 左方块
-    draw_cube_block(
+    drawing::draw_cube_block(
         t_block_center_x - block_size * 1.5, 
         t_block_center_y - block_size / 2.0, 
         block_size, 
@@ -1841,7 +1875,7 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 中间方块
-    draw_cube_block(
+    drawing::draw_cube_block(
         t_block_center_x - block_size / 2.0, 
         t_block_center_y - block_size / 2.0, 
         block_size, 
@@ -1849,7 +1883,7 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 右方块
-    draw_cube_block(
+    drawing::draw_cube_block(
         t_block_center_x + block_size / 2.0, 
         t_block_center_y - block_size / 2.0, 
         block_size, 
@@ -1893,10 +1927,10 @@ fn draw_main_menu(game: &mut Game) {
 
 // 绘制传统菜单界面的函数
 fn draw_menu(game: &mut Game) {
-    // 绘制游戏界面作为背景
-    draw_game(game);
+    // 移除：不再绘制游戏界面作为背景
+    // draw_game(game);
     
-    // 绘制半透明覆盖层使背景变暗
+    // 绘制半透明覆盖层使背景变暗 (直接绘制在屏幕上)
     let width = screen_width();
     let height = screen_height();
     draw_rectangle(0.0, 0.0, width, height, Color::new(0.0, 0.0, 0.0, 0.7));
@@ -1911,15 +1945,16 @@ fn draw_menu(game: &mut Game) {
     
     // 高分显示
     let high_score_size = 24.0 * dpi_scale;
-    let high_score_text = format!("最高分: {}", game.save_data.high_score);
+    // let high_score_text = format!("最高分: {}", game.save_data.high_score);
+    let high_score_text = format!("最高分: {}", game.cloud_high_score.unwrap_or(0)); // 使用云端最高分
     draw_chinese_text(&high_score_text, center_x, center_y - 30.0 * dpi_scale, high_score_size, WHITE);
     
     // 游戏模式选择
     let mode_size = 20.0 * dpi_scale;
-    let mode_text = if game.easy_mode {
-        "简单模式"
-    } else {
-        "普通模式"
+    let mode_text = match game.game_mode {
+        GameMode::Easy => "简单模式",
+        GameMode::Normal => "普通模式",
+        GameMode::Happy => "开心模式", // 添加 Happy 模式显示
     };
     draw_chinese_text(mode_text, center_x, center_y + 20.0 * dpi_scale, mode_size, WHITE);
     
@@ -1970,26 +2005,27 @@ fn draw_menu(game: &mut Game) {
         game.score = 0;
         game.combo = 0;
         game.grid = grid::Grid::new();
-        game.generate_blocks();
+        game.generate_blocks(); // 会使用当前的 game_mode
         game.score_uploaded = false;
         game.state = GameState::Playing;
     }
     
-    // 空格键切换游戏难度
-    if is_key_pressed(KeyCode::Space) {
+    // 空格键切换游戏难度 (逻辑移到 update_game 开头)
+    /* if is_key_pressed(KeyCode::Space) {
         game.easy_mode = !game.easy_mode;
         
         if game.easy_mode {
             // 简单模式参数
-            game.simple_block_chance = 30;
-            game.standard_block_chance = 60;
+            game.simple_block_chance = 60;
+            game.standard_block_chance = 30;
             game.blocks_per_generation = 3;
         } else {
             // 普通模式参数
-            game.simple_block_chance = 20;
-            game.standard_block_chance = 50;
-            game.blocks_per_generation = 2;
+            game.simple_block_chance = 55;
+            game.standard_block_chance = 25;
+            game.blocks_per_generation = 3;
         }
-    }
+    } */
 }
+
 

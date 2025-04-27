@@ -2,109 +2,6 @@
 use macroquad::prelude::*;
 use crate::block::BlockShape;
 
-// 更高效的立体感方块绘制函数
-fn draw_cube_block(x: f32, y: f32, size: f32, color: Color) {
-    // 亮色和暗色偏移量
-    let light_factor = 0.4;
-    let dark_factor = 0.4;
-    let mid_light_factor = 0.2; // 中等亮色偏移量
-    let mid_dark_factor = 0.2; // 中等暗色偏移量
-    
-    // 边缘厚度
-    let border = size * 0.15;
-    
-    // 创建亮色和暗色
-    let light_color = Color::new(
-        (color.r + light_factor).min(1.0),
-        (color.g + light_factor).min(1.0),
-        (color.b + light_factor).min(1.0),
-        color.a
-    );
-    
-    // 创建中等亮色（比light暗）
-    let mid_light_color = Color::new(
-        (color.r + mid_light_factor).min(1.0),
-        (color.g + mid_light_factor).min(1.0),
-        (color.b + mid_light_factor).min(1.0),
-        color.a
-    );
-    
-    // 创建中等暗色（比dark浅）
-    let mid_dark_color = Color::new(
-        (color.r - mid_dark_factor).max(0.0),
-        (color.g - mid_dark_factor).max(0.0),
-        (color.b - mid_dark_factor).max(0.0),
-        color.a
-    );
-    
-    let dark_color = Color::new(
-        (color.r - dark_factor).max(0.0),
-        (color.g - dark_factor).max(0.0),
-        (color.b - dark_factor).max(0.0),
-        color.a
-    );
-    
-    // 1. 先绘制主体
-    draw_rectangle(x, y, size, size, color);
-    
-    // 2. 绘制四个边（只需要4次绘制调用）
-    // 上边 - 亮色
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x + size, y), 
-        Vec2::new(x + size - border, y + border),
-        light_color
-    );
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x + border, y + border), 
-        Vec2::new(x + size - border, y + border),
-        light_color
-    );
-    
-    // 左边 - 中等亮色
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x, y + size), 
-        Vec2::new(x + border, y + size - border),
-        mid_light_color
-    );
-    draw_triangle(
-        Vec2::new(x, y), 
-        Vec2::new(x + border, y + border), 
-        Vec2::new(x + border, y + size - border),
-        mid_light_color
-    );
-    
-    // 右边 - 中等暗色
-    draw_triangle(
-        Vec2::new(x + size, y), 
-        Vec2::new(x + size, y + size), 
-        Vec2::new(x + size - border, y + size - border),
-        mid_dark_color
-    );
-    draw_triangle(
-        Vec2::new(x + size, y), 
-        Vec2::new(x + size - border, y + border), 
-        Vec2::new(x + size - border, y + size - border),
-        mid_dark_color
-    );
-    
-    // 下边 - 暗色
-    draw_triangle(
-        Vec2::new(x, y + size), 
-        Vec2::new(x + size, y + size), 
-        Vec2::new(x + size - border, y + size - border),
-        dark_color
-    );
-    draw_triangle(
-        Vec2::new(x, y + size), 
-        Vec2::new(x + border, y + size - border), 
-        Vec2::new(x + size - border, y + size - border),
-        dark_color
-    );
-}
-
 pub struct Grid {
     pub cells: [[Option<Color>; 8]; 8],
 }
@@ -196,30 +93,40 @@ impl Grid {
         }
     }
     
-    // 检查并消除填满的行和列 (只有完全填满才消除)
+    // 检查并消除填满的行和列 (修复同时满足行列时的Bug)
     pub fn check_and_clear(&mut self) -> (u32, u32) {
-        let mut rows_cleared = 0;
-        let mut cols_cleared = 0;
+        let mut rows_to_clear = [false; 8];
+        let mut cols_to_clear = [false; 8];
         
-        // 检查行
+        // 1. 标记要清除的行
         for y in 0..8 {
             if (0..8).all(|x| self.cells[y][x].is_some()) {
-                // 清除这一行
-                for x in 0..8 {
-                    self.cells[y][x] = None;
-                }
-                rows_cleared += 1;
+                rows_to_clear[y] = true;
             }
         }
         
-        // 检查列
+        // 2. 标记要清除的列
         for x in 0..8 {
             if (0..8).all(|y| self.cells[y][x].is_some()) {
-                // 清除这一列
-                for y in 0..8 {
+                cols_to_clear[x] = true;
+            }
+        }
+
+        // 3. 计算清除的数量 (在实际清除前计算)
+        let rows_cleared = rows_to_clear.iter().filter(|&&clear| clear).count() as u32;
+        let cols_cleared = cols_to_clear.iter().filter(|&&clear| clear).count() as u32;
+
+        // 如果没有需要清除的，直接返回
+        if rows_cleared == 0 && cols_cleared == 0 {
+            return (0, 0);
+        }
+
+        // 4. 执行清除
+        for y in 0..8 {
+            for x in 0..8 {
+                if rows_to_clear[y] || cols_to_clear[x] {
                     self.cells[y][x] = None;
                 }
-                cols_cleared += 1;
             }
         }
         
@@ -239,7 +146,7 @@ impl Grid {
                 // 绘制已放置的方块
                 if let Some(color) = self.cells[y][x] {
                     // 使用draw_cube_block函数绘制方块（包含3D效果）
-                    draw_cube_block(pos_x, pos_y, cell_size, color);
+                    crate::drawing::draw_cube_block(pos_x, pos_y, cell_size, color);
                 }
             }
         }

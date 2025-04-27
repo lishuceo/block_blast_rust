@@ -35,7 +35,7 @@ impl SimpleRandom {
     /// 生成0到1之间的随机浮点数
     pub fn next_float(&mut self) -> f32 {
         // 将u64转换为0到1之间的f32
-        (self.next_u64() & 0x00_FFFF_FFFF) as f32 / 0x1_0000_0000 as f32
+        (self.next_u64() & 0x00_FFFF_FFFF) as f32 / 4294967296.0_f32
     }
     
     /// 生成指定范围内的随机整数
