@@ -554,14 +554,14 @@ impl Game {
 fn draw_leaderboard(game: &mut Game) {
     let width = screen_width();
     let height = screen_height();
-    let dpi_scale = get_dpi_scale(); // 获取DPI缩放
+    // let dpi_scale = get_dpi_scale(); // 获取DPI缩放 (Removed)
     
     // 绘制半透明背景
     draw_rectangle(0.0, 0.0, width, height, COLOR_PRIMARY_OVERLAY);
     
     // 绘制排行榜标题
     let title_text = "排行榜";
-    let title_font_size = 40.0 * dpi_scale; // 应用DPI缩放
+    let title_font_size = 40.0; // * dpi_scale; // 应用DPI缩放 (Removed)
     draw_chinese_text(title_text, width / 2.0, height * 0.15, title_font_size, WHITE);
     
     // 检查排行榜初始化状态
@@ -572,7 +572,7 @@ fn draw_leaderboard(game: &mut Game) {
         } else {
             "排行榜服务未连接"
         };
-        draw_chinese_text(status_text, width / 2.0, height * 0.35, 24.0 * dpi_scale, 
+        draw_chinese_text(status_text, width / 2.0, height * 0.35, 24.0, // * dpi_scale, (Removed)
                           if game.is_leaderboard_loading { SKYBLUE } else { Color::new(1.0, 0.5, 0.5, 1.0) });
         
         // 绘制加载动画
@@ -580,8 +580,8 @@ fn draw_leaderboard(game: &mut Game) {
             // 绘制旋转的加载圈
             let center_x = width / 2.0;
             let center_y = height * 0.5;
-            let radius = 20.0 * dpi_scale;
-            let thickness = 4.0 * dpi_scale;
+            let radius = 20.0; // * dpi_scale; (Removed)
+            let thickness = 4.0; // * dpi_scale; (Removed)
             let rotation_speed = 2.5; // 稍微降低旋转速度，减少视觉冲击
             
             // 计算当前旋转角度，添加平滑补间
@@ -628,16 +628,18 @@ fn draw_leaderboard(game: &mut Game) {
             }
             
             // 在加载动画下方添加提示
-            draw_chinese_text("正在连接服务器...", center_x, center_y + radius + 30.0 * dpi_scale, 
-                            16.0 * dpi_scale, Color::new(0.5, 0.7, 1.0, alpha_base));
+            draw_chinese_text("正在连接服务器...", center_x, center_y + radius + 30.0, // * dpi_scale, (Removed)
+                            16.0, // * dpi_scale, (Removed)
+                            Color::new(0.5, 0.7, 1.0, alpha_base));
         } else {
             // 如果未初始化，显示重试提示
-            draw_chinese_text("点击右上角按钮返回主菜单", 
-                             width / 2.0, height * 0.45, 20.0 * dpi_scale, WHITE);
+            draw_chinese_text("点击右上角按钮返回主菜单",
+                             width / 2.0, height * 0.45, 20.0, // * dpi_scale, (Removed)
+                             WHITE);
         }
     } else {
         // 绘制排行榜数据
-        let font_size = 24.0 * dpi_scale; // 应用DPI缩放
+        let font_size = 24.0; // * dpi_scale; // 应用DPI缩放 (Removed)
         let line_height = font_size * 1.5;
         let start_y = height * 0.25;
         
@@ -658,7 +660,8 @@ fn draw_leaderboard(game: &mut Game) {
             draw_chinese_text(score_text, width * 0.65, start_y, font_size, WHITE);
             
             // 绘制分割线
-            draw_line(width * 0.1, start_y + font_size * 0.5, width * 0.9, start_y + font_size * 0.5, 2.0 * dpi_scale, GRAY); // 应用DPI缩放
+            draw_line(width * 0.1, start_y + font_size * 0.5, width * 0.9, start_y + font_size * 0.5, 2.0, // * dpi_scale, (Removed)
+                      GRAY); // 应用DPI缩放
             
             // 绘制排行榜数据
             for (i, rank) in leaderboard.iter().enumerate() {
@@ -682,8 +685,8 @@ fn draw_leaderboard(game: &mut Game) {
     }
     
     // 绘制返回按钮
-    let button_width = 200.0 * dpi_scale; // 应用DPI缩放
-    let button_height = 50.0 * dpi_scale; // 应用DPI缩放
+    let button_width = 200.0; // * dpi_scale; // 应用DPI缩放 (Removed)
+    let button_height = 50.0; // * dpi_scale; // 应用DPI缩放 (Removed)
     let button_x = width / 2.0 - button_width / 2.0;
     let button_y = height * 0.8;
     
@@ -699,7 +702,7 @@ fn draw_leaderboard(game: &mut Game) {
     
     draw_rectangle(button_x, button_y, button_width, button_height, button_color);
     
-    let font_size = 24.0 * dpi_scale; // 应用DPI缩放
+    let font_size = 24.0; // * dpi_scale; // 应用DPI缩放 (Removed)
     let button_text = "返回主菜单";
     // 使用draw_chinese_text绘制按钮文本
     draw_chinese_text(button_text, 
@@ -723,7 +726,7 @@ fn is_mouse_in_rect(x: f32, y: f32, width: f32, height: f32) -> bool {
 // 绘制函数
 fn draw_game(game: &mut Game) {
     // 获取DPI缩放比例
-    let dpi_scale = get_dpi_scale();
+    // let dpi_scale = get_dpi_scale(); // (Removed)
     
     // 清屏为深蓝色背景 #3C569E - 匹配全局设计
     clear_background(COLOR_PRIMARY);
@@ -741,7 +744,7 @@ fn draw_game(game: &mut Game) {
     draw_chinese_text("逆向俄罗斯方块", 
              screen_width() / 2.0,
              grid_offset_y / 2.0, 
-             20.0 * dpi_scale, // 字体大小乘以DPI缩放
+             20.0, // * dpi_scale, // 字体大小乘以DPI缩放 (Removed)
              WHITE);
     
     // 绘制游戏网格背景
@@ -754,7 +757,7 @@ fn draw_game(game: &mut Game) {
     );
     
     // 添加细边框 - 在高DPI设备上更清晰
-    let border_width = 2.0 * dpi_scale;
+    let border_width = 2.0; // * dpi_scale; (Removed)
     draw_rectangle_lines(
         grid_offset_x - 5.0,
         grid_offset_y - 5.0,
@@ -776,7 +779,7 @@ fn draw_game(game: &mut Game) {
         &format!("分数: {}", game.score), 
         40.0, // 向右调整，更美观
         score_y, 
-        15.0 * dpi_scale, 
+        15.0, // * dpi_scale, (Removed)
         WHITE
     );
     
@@ -786,7 +789,7 @@ fn draw_game(game: &mut Game) {
         &format!("最高分: {}", game.cloud_high_score.unwrap_or(0)), // 使用云端最高分
         screen_width() - 100.0, // 向右调整，更美观
         score_y, 
-        15.0 * dpi_scale, 
+        15.0, // * dpi_scale, (Removed)
         WHITE
     );
     
@@ -801,7 +804,7 @@ fn draw_game(game: &mut Game) {
         separator_y,
         screen_width() - 10.0,
         separator_y,
-        2.0 * dpi_scale, // 线宽度也随DPI缩放
+        2.0, // * dpi_scale, // 线宽度也随DPI缩放 (Removed)
         Color::new(0.3, 0.3, 0.3, 1.0)
     );
     
@@ -816,7 +819,7 @@ fn draw_game(game: &mut Game) {
         "可拖拽方块", 
         screen_width() / 2.0, // 居中显示
         bottom_area_top + (if is_small_screen { 15.0 } else { 25.0 }), 
-        20.0 * dpi_scale, // 字体大小乘以DPI缩放
+        20.0, // * dpi_scale, // 字体大小乘以DPI缩放 (Removed)
         WHITE
     );
     
@@ -992,7 +995,7 @@ fn draw_game(game: &mut Game) {
             // 主菜单界面在draw_main_menu函数中单独处理
         },
         GameState::Menu => {
-            let dpi_scale = get_dpi_scale();
+            // let dpi_scale = get_dpi_scale(); // (Removed)
             let width = screen_width();
             let height = screen_height();
 
@@ -1004,15 +1007,15 @@ fn draw_game(game: &mut Game) {
             draw_chinese_text("逆向俄罗斯方块", 
                      width / 2.0, 
                      title_y, 
-                     40.0 * dpi_scale, 
+                     40.0, // * dpi_scale, (Removed)
                      WHITE);
 
             // 按钮尺寸和间距
-            let btn_width = 220.0 * dpi_scale;
-            let btn_height = 55.0 * dpi_scale;
-            let btn_spacing = 20.0 * dpi_scale;
+            let btn_width = 220.0; // * dpi_scale; (Removed)
+            let btn_height = 55.0; // * dpi_scale; (Removed)
+            let btn_spacing = 20.0; // * dpi_scale; (Removed)
             let total_btn_height = btn_height * 2.0 + btn_spacing;
-            let btn_start_y = title_y + 100.0 * dpi_scale; // 在标题下方留出更多空间
+            let btn_start_y = title_y + 100.0; // * dpi_scale; // 在标题下方留出更多空间 (Removed)
 
             // 开始游戏按钮位置
             let start_btn_x = width / 2.0 - btn_width / 2.0;
@@ -1037,7 +1040,8 @@ fn draw_game(game: &mut Game) {
                 let btn_color = if is_down { down_color } else if is_hover { hover_color } else { base_color };
                 
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, btn_color);
-                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.0 * dpi_scale, LIGHTGRAY);
+                draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2.0, // * dpi_scale, (Removed)
+                                     LIGHTGRAY);
                 
                 draw_chinese_text(text, 
                                   rect.x + rect.w / 2.0, 
@@ -1048,17 +1052,17 @@ fn draw_game(game: &mut Game) {
             // --- 绘制按钮公共函数结束 ---
 
             // 绘制开始游戏按钮
-            draw_menu_button(start_btn_rect, "开始游戏", 25.0 * dpi_scale);
+            draw_menu_button(start_btn_rect, "开始游戏", 25.0); // * dpi_scale); (Removed)
 
             // 绘制排行榜按钮
-            draw_menu_button(leaderboard_btn_rect, "排行榜", 25.0 * dpi_scale);
+            draw_menu_button(leaderboard_btn_rect, "排行榜", 25.0); // * dpi_scale); (Removed)
             
             // 绘制最高分
-            let high_score_y = leaderboard_btn_y + btn_height + 60.0 * dpi_scale;
+            let high_score_y = leaderboard_btn_y + btn_height + 60.0; // * dpi_scale; (Removed)
             draw_chinese_text(&format!("最高分: {}", game.cloud_high_score.unwrap_or(0)), 
                      width / 2.0, 
                      high_score_y, 
-                     22.0 * dpi_scale, 
+                     22.0, // * dpi_scale, (Removed)
                      Color::new(0.6, 0.8, 1.0, 1.0)); // 稍亮的蓝色
         },
         GameState::GameOver => {
@@ -1069,14 +1073,14 @@ fn draw_game(game: &mut Game) {
             draw_chinese_text("游戏结束", 
                      screen_width() / 2.0, 
                      screen_height() / 3.0, 
-                     30.0 * dpi_scale, 
+                     30.0, // * dpi_scale, (Removed)
                      WHITE);
             
             // 绘制最终得分
             draw_chinese_text(&format!("最终得分: {}", game.score), 
                      screen_width() / 2.0, 
                      screen_height() / 2.0, 
-                     25.0 * dpi_scale, 
+                     25.0, // * dpi_scale, (Removed)
                      Color::new(1.0, 0.8, 0.2, 1.0));
             
             // 绘制最高分
@@ -1091,35 +1095,36 @@ fn draw_game(game: &mut Game) {
             draw_chinese_text(&high_score_text, 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 40.0, 
-                     22.0 * dpi_scale, 
+                     22.0, // * dpi_scale, (Removed)
                      if new_record { Color::new(1.0, 0.5, 0.0, 1.0) } else { Color::new(0.2, 0.8, 1.0, 1.0) });
             
             // 绘制重新开始提示
             draw_chinese_text("点击重新开始", 
                      screen_width() / 2.0, 
                      screen_height() / 2.0 + 100.0, 
-                     25.0 * dpi_scale, 
+                     25.0, // * dpi_scale, (Removed)
                      WHITE);
 
             // GameOver状态下显示排行榜按钮
             if game.show_leaderboard_button {
-                let dpi_scale = get_dpi_scale();
-                let btn_width = 200.0 * dpi_scale; // 应用DPI
-                let btn_height = 40.0 * dpi_scale; // 应用DPI
+                // let dpi_scale = get_dpi_scale(); // (Removed)
+                let btn_width = 200.0; // * dpi_scale; // 应用DPI (Removed)
+                let btn_height = 40.0; // * dpi_scale; // 应用DPI (Removed)
                 let btn_x = screen_width() / 2.0 - btn_width / 2.0;
                 let btn_y = screen_height() / 2.0 + 100.0; // 统一按钮位置
                 let btn_rect = Rect::new(btn_x, btn_y, btn_width, btn_height);
                 
                 // 绘制按钮
                 draw_rectangle(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, DARKGRAY);
-                draw_rectangle_lines(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, 2.0 * dpi_scale, WHITE); // 应用DPI
+                draw_rectangle_lines(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, 2.0, // * dpi_scale, (Removed)
+                                     WHITE); // 应用DPI
                 
                 // 按钮文字
                 draw_chinese_text(
                     "查看排行榜", 
                     btn_rect.x + btn_rect.w / 2.0, 
                     btn_rect.y + btn_rect.h / 2.0, 
-                    18.0 * dpi_scale, 
+                    18.0, // * dpi_scale, (Removed)
                     WHITE
                 );
                 
@@ -1128,8 +1133,8 @@ fn draw_game(game: &mut Game) {
                     draw_chinese_text(
                         "分数已上传", 
                         screen_width() / 2.0, 
-                        btn_y + btn_height + 20.0 * dpi_scale, // 在按钮下方显示
-                        14.0 * dpi_scale, 
+                        btn_y + btn_height + 20.0, // * dpi_scale, // 在按钮下方显示 (Removed)
+                        14.0, // * dpi_scale, (Removed)
                         GREEN
                     );
                 }
@@ -1214,17 +1219,16 @@ fn update_game(game: &mut Game) {
         },
         GameState::Menu => {
             if is_mouse_button_pressed(MouseButton::Left) {
-                let dpi_scale = get_dpi_scale();
                 let width = screen_width();
                 let height = screen_height();
                 let mouse_pos: Vec2 = mouse_position().into();
 
                 // 按钮尺寸和位置计算（与draw_game中保持一致）
                 let title_y = height * 0.25;
-                let btn_width = 220.0 * dpi_scale;
-                let btn_height = 55.0 * dpi_scale;
-                let btn_spacing = 20.0 * dpi_scale;
-                let btn_start_y = title_y + 100.0 * dpi_scale;
+                let btn_width = 220.0; // * dpi_scale; (Removed)
+                let btn_height = 55.0; // * dpi_scale; (Removed)
+                let btn_spacing = 20.0; // * dpi_scale; (Removed)
+                let btn_start_y = title_y + 100.0; // * dpi_scale; // 在标题下方留出更多空间 (Removed)
 
                 let start_btn_x = width / 2.0 - btn_width / 2.0;
                 let start_btn_y = btn_start_y;
@@ -1477,14 +1481,13 @@ fn update_game(game: &mut Game) {
         },
         GameState::GameOver => {
             if is_mouse_button_pressed(MouseButton::Left) {
-                let dpi_scale = get_dpi_scale();
                 let width = screen_width();
                 let height = screen_height();
                 let mouse_pos: Vec2 = mouse_position().into();
 
                 // 重新开始按钮的隐形区域（整个屏幕，除了排行榜按钮）
-                let leaderboard_btn_width = 200.0 * dpi_scale;
-                let leaderboard_btn_height = 40.0 * dpi_scale;
+                let leaderboard_btn_width = 200.0; // * dpi_scale; // 应用DPI (Removed)
+                let leaderboard_btn_height = 40.0; // * dpi_scale; // 应用DPI (Removed)
                 let leaderboard_btn_x = width / 2.0 - leaderboard_btn_width / 2.0;
                 // 注意：这里的 Y 坐标要和 draw_game 中绘制排行榜按钮的 Y 坐标匹配
                 // 在 draw_game 的 GameOver 分支中，是 height / 2.0 + 80.0 (原始值) 
@@ -1515,12 +1518,11 @@ fn update_game(game: &mut Game) {
 fn window_conf() -> Conf {
     Conf {
         window_title: "方块消除游戏".to_string(),
-        window_width: 400,
-        window_height: 600,
-        high_dpi: true,  // 保留高DPI支持
-        fullscreen: false,
-        sample_count: 1,  // 移除抗锯齿，使用默认值1
-        window_resizable: false,
+        window_width: 400,  // 移除固定宽度
+        window_height: 600, // 移除固定高度
+        high_dpi: true,      // 保留高DPI支持
+        sample_count: 1,      // 默认值
+        window_resizable: false, // 保持不可调整大小
         ..Default::default()
     }
 }
@@ -1765,24 +1767,24 @@ fn draw_main_menu(game: &mut Game) {
     
     let width = screen_width();
     let height = screen_height();
-    let dpi_scale = get_dpi_scale();
+    // let dpi_scale = get_dpi_scale(); // (Removed)
     
     // 计算居中位置
     let center_x = width / 2.0;
     
     // 标题文本 - 应用弹跳动画
     let title_y = height * 0.2 + game.title_bounce;
-    let title_size = 48.0 * dpi_scale;
+    let title_size = 48.0; // * dpi_scale; (Removed)
     draw_chinese_text("方块爆破", center_x, title_y, title_size, COLOR_TITLE);
     
     // 副标题
-    let subtitle_y = title_y + 60.0 * dpi_scale;
-    let subtitle_size = 24.0 * dpi_scale;
+    let subtitle_y = title_y + 60.0; // * dpi_scale; (Removed)
+    let subtitle_size = 24.0; // * dpi_scale; (Removed)
     draw_chinese_text("Rust 版本", center_x, subtitle_y, subtitle_size, Color::new(0.8, 0.8, 0.9, 1.0));
     
     // 计算按钮尺寸和位置
-    let button_width = 200.0 * dpi_scale;
-    let button_height = 60.0 * dpi_scale;
+    let button_width = 200.0; // * dpi_scale; (Removed)
+    let button_height = 60.0; // * dpi_scale; (Removed)
     let button_x = center_x - button_width / 2.0;
     
     // 开始游戏按钮
@@ -1804,12 +1806,12 @@ fn draw_main_menu(game: &mut Game) {
         start_button_rect.y, 
         start_button_rect.w, 
         start_button_rect.h, 
-        2.0 * dpi_scale,
+        2.0, // * dpi_scale, (Removed)
         Color::new(0.3, 0.7, 1.0, 1.0)
     );
     
     // 开始游戏按钮文字
-    let button_text_size = 24.0 * dpi_scale;
+    let button_text_size = 24.0; // * dpi_scale; (Removed)
     draw_chinese_text(
         "开始游戏", 
         center_x, 
@@ -1819,7 +1821,7 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 排行榜按钮
-    let leaderboard_button_y = start_button_y + button_height + 20.0 * dpi_scale;
+    let leaderboard_button_y = start_button_y + button_height + 20.0; // * dpi_scale; (Removed)
     let leaderboard_button_rect = Rect::new(button_x, leaderboard_button_y, button_width, button_height);
     
     // 绘制排行榜按钮（深色带边框）- 始终保持可点击状态
@@ -1837,7 +1839,7 @@ fn draw_main_menu(game: &mut Game) {
         leaderboard_button_rect.y, 
         leaderboard_button_rect.w, 
         leaderboard_button_rect.h, 
-        2.0 * dpi_scale,
+        2.0, // * dpi_scale, (Removed)
         Color::new(0.3, 0.7, 1.0, 1.0)
     );
     
@@ -1851,7 +1853,7 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 绘制T形俄罗斯方块 - 使用简单方块绘制，不使用旋转动画
-    let block_size = 40.0 * dpi_scale;
+    let block_size = 40.0; // * dpi_scale; (Removed)
     let t_block_center_x = center_x;
     let t_block_center_y = height * 0.85;
     
@@ -1891,8 +1893,8 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 页脚版权信息
-    let footer_y = height - 30.0 * dpi_scale;
-    let footer_size = 14.0 * dpi_scale;
+    let footer_y = height - 30.0; // * dpi_scale; (Removed)
+    let footer_size = 14.0; // * dpi_scale; (Removed)
     draw_chinese_text(
         "© 2023 方块爆破 | Rust 版本", 
         center_x, 
@@ -1940,39 +1942,39 @@ fn draw_menu(game: &mut Game) {
     let center_y = height / 2.0;
     
     // 标题
-    let title_size = 40.0 * dpi_scale;
-    draw_chinese_text("方块爆破", center_x, center_y - 100.0 * dpi_scale, title_size, Color::new(1.0, 0.4, 0.2, 1.0));
+    let title_size = 40.0; // * dpi_scale; (Removed)
+    draw_chinese_text("方块爆破", center_x, center_y - 100.0, title_size, Color::new(1.0, 0.4, 0.2, 1.0));
     
     // 高分显示
-    let high_score_size = 24.0 * dpi_scale;
+    let high_score_size = 24.0; // * dpi_scale; (Removed)
     // let high_score_text = format!("最高分: {}", game.save_data.high_score);
     let high_score_text = format!("最高分: {}", game.cloud_high_score.unwrap_or(0)); // 使用云端最高分
-    draw_chinese_text(&high_score_text, center_x, center_y - 30.0 * dpi_scale, high_score_size, WHITE);
+    draw_chinese_text(&high_score_text, center_x, center_y - 30.0, high_score_size, WHITE);
     
     // 游戏模式选择
-    let mode_size = 20.0 * dpi_scale;
+    let mode_size = 20.0; // * dpi_scale; (Removed)
     let mode_text = match game.game_mode {
         GameMode::Easy => "简单模式",
         GameMode::Normal => "普通模式",
         GameMode::Happy => "开心模式", // 添加 Happy 模式显示
     };
-    draw_chinese_text(mode_text, center_x, center_y + 20.0 * dpi_scale, mode_size, WHITE);
+    draw_chinese_text(mode_text, center_x, center_y + 20.0, mode_size, WHITE);
     
     // 开始提示
-    let hint_size = 28.0 * dpi_scale;
-    draw_chinese_text("点击开始游戏", center_x, center_y + 70.0 * dpi_scale, hint_size, WHITE);
+    let hint_size = 28.0; // * dpi_scale; (Removed)
+    draw_chinese_text("点击开始游戏", center_x, center_y + 70.0, hint_size, WHITE);
     
     // 切换难度提示
-    let space_hint_size = 16.0 * dpi_scale;
-    draw_chinese_text("按空格键切换游戏难度", center_x, center_y + 120.0 * dpi_scale, space_hint_size, Color::new(0.8, 0.8, 0.8, 1.0));
+    let space_hint_size = 16.0; // * dpi_scale; (Removed)
+    draw_chinese_text("按空格键切换游戏难度", center_x, center_y + 120.0, space_hint_size, Color::new(0.8, 0.8, 0.8, 1.0));
     
     // 主菜单按钮
-    let back_size = 16.0 * dpi_scale;
+    let back_size = 16.0; // * dpi_scale; (Removed)
     let back_text = "返回主菜单";
     let back_width = measure_text(back_text, None, back_size as u16, 1.0).width;
-    let back_x = 20.0 * dpi_scale;
-    let back_y = 20.0 * dpi_scale;
-    let back_padding = 10.0 * dpi_scale;
+    let back_x = 20.0; // * dpi_scale; (Removed)
+    let back_y = 20.0; // * dpi_scale; (Removed)
+    let back_padding = 10.0; // * dpi_scale; (Removed)
     let back_rect = Rect::new(
         back_x - back_padding, 
         back_y - back_size, 

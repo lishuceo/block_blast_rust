@@ -203,8 +203,8 @@ function updateCanvasSize() {
         // 计算理想显示尺寸和缩放比例
         calculateDisplaySize(windowWidth, windowHeight);
         
-        // 应用样式
-        applyMinimalStyleChanges();
+        // 应用样式 - 暂时禁用以允许CSS生效
+        // applyMinimalStyleChanges();
         
         // 尝试强制重绘
         if (webglInitialized) {
