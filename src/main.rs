@@ -317,20 +317,47 @@ impl Game {
         let grid_size = screen_width() * 0.9;
         let cell_size = grid_size / 8.0;
         
-        // 计算可拖拽方块区域的位置
-        // 使用动态计算的顶部偏移
-        let grid_offset_y = screen_height() * 0.07;
+        // 计算可拖拽方块区域的位置 - 使用宽高比
+        let aspect_ratio = screen_width() / screen_height();
         
-        // 检测小屏幕
+        // 基于宽高比判断屏幕类型
+        let is_wide_screen = aspect_ratio > 0.8;   // 宽屏 (接近正方形)
+        let is_tall_screen = aspect_ratio < 0.5;   // 高屏 (典型手机竖屏)
         let is_small_screen = screen_height() < 600.0;
-        let spacing = if is_small_screen { 20.0 } else { 30.0 };
+        
+        // 使用与其他位置相同的顶部偏移计算
+        let grid_offset_y = if is_tall_screen {
+            screen_height() * 0.22  // 从 0.18 增加到 0.22，与其他函数保持一致
+        } else if is_wide_screen {
+            screen_height() * 0.12  // 从 0.07 增加到 0.12，与其他函数保持一致
+        } else {
+            screen_height() * 0.15  // 从 0.10 增加到 0.15，与其他函数保持一致
+        };
+        
+        // 更新分隔线和间距计算 - 使用宽高比
+        let spacing = if is_tall_screen {
+            60.0 // 高屏幕上使用更大间距
+        } else if is_wide_screen {
+            20.0 // 宽屏上使用较小间距
+        } else {
+            40.0 // 标准屏幕上使用中等间距
+        };
+        
         let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
         let _bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
         
-        // 确保底部区域最小高度
-        let min_bottom_height = screen_height() * 0.2;
+        // 确保底部区域最小高度 - 使用宽高比
+        let min_bottom_height = if is_tall_screen {
+            screen_height() * 0.25 // 在高屏上提供更大的底部区域
+        } else if is_wide_screen {
+            screen_height() * 0.15 // 在宽屏上使用较小的底部区域
+        } else {
+            screen_height() * 0.20 // 标准底部区域大小
+        };
         let bottom_area_height = (screen_height() - separator_y).max(min_bottom_height);
-        let blocks_y = separator_y + bottom_area_height / 2.0; // 垂直居中
+        // let blocks_y = separator_y + bottom_area_height / 2.0; // 垂直居中
+        // 将方块位置往上调整，与 draw_game 中的计算保持一致
+        let blocks_y = separator_y + bottom_area_height * 0.4; // 从0.5 (中心) 减少到0.4，使方块向上移动
         
         // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸
         let max_block_size = cell_size * 4.0; // 最大方块尺寸
@@ -738,13 +765,28 @@ fn draw_game(game: &mut Game) {
     let cell_size = grid_size / 8.0;
     let grid_offset_x = (screen_width() - grid_size) / 2.0;
     
-    // 根据屏幕大小动态计算顶部偏移
-    let grid_offset_y = screen_height() * 0.07;
-
+    // 计算游戏布局 - 使用宽高比而不是绝对高度
+    let aspect_ratio = screen_width() / screen_height();
+    
+    // 基于宽高比判断屏幕类型
+    let is_wide_screen = aspect_ratio > 0.8;   // 宽屏 (接近正方形)
+    let is_tall_screen = aspect_ratio < 0.5;   // 高屏 (典型手机竖屏)
+    // 是否是小屏幕保留作为辅助判断
+    let is_small_screen = screen_height() < 600.0;
+    
+    // 更好地调整顶部偏移 - 根据宽高比调整
+    let grid_offset_y = if is_tall_screen {
+        screen_height() * 0.22  // 从 0.18 增加到 0.22，与 draw_game 保持一致
+    } else if is_wide_screen {
+        screen_height() * 0.12  // 从 0.07 增加到 0.12，与 draw_game 保持一致
+    } else {
+        screen_height() * 0.15  // 从 0.10 增加到 0.15，与 draw_game 保持一致
+    };
+    
     // 绘制游戏标题，字体大小根据DPI缩放
     draw_chinese_text("逆向俄罗斯方块", 
              screen_width() / 2.0,
-             grid_offset_y / 2.0, 
+             grid_offset_y * 0.7,  // 从 grid_offset_y / 2.0 修改为 grid_offset_y * 0.7
              20.0, // * dpi_scale, // 字体大小乘以DPI缩放 (Removed)
              WHITE);
     
@@ -794,10 +836,16 @@ fn draw_game(game: &mut Game) {
         WHITE
     );
     
-    // 绘制分隔线
-    // 检测小屏幕并调整间距
-    let is_small_screen = screen_height() < 600.0;
-    let spacing = if is_small_screen { 20.0 } else { 30.0 };
+    // 绘制分隔线 - 根据屏幕宽高比调整分隔线的位置
+    // 调整间距 - 基于宽高比
+    let spacing = if is_tall_screen {
+        60.0 // 高屏幕上使用更大间距
+    } else if is_wide_screen {
+        20.0 // 宽屏上使用较小间距
+    } else {
+        40.0 // 标准屏幕上使用中等间距
+    };
+    
     let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
     let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
     draw_line(
@@ -810,9 +858,14 @@ fn draw_game(game: &mut Game) {
     );
     
     // 绘制下方区域的背景
-    let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
     // 确保底部区域至少有屏幕高度的一定比例
-    let min_bottom_height = screen_height() * 0.2; // 至少占屏幕高度的20%
+    let min_bottom_height = if is_tall_screen {
+        screen_height() * 0.25 // 在高屏上提供更大的底部区域
+    } else if is_wide_screen {
+        screen_height() * 0.15 // 在宽屏上使用较小的底部区域
+    } else {
+        screen_height() * 0.20 // 标准底部区域大小
+    };
     let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
     
     // 绘制可选方块区域的标题
@@ -826,7 +879,9 @@ fn draw_game(game: &mut Game) {
     
     // 绘制当前可选方块 - 在竖屏模式下水平排列
     // 计算垂直位置，使方块位于底部区域的中间
-    let blocks_y = bottom_area_top + bottom_area_height / 2.0; // 可拖拽方块位于底部区域的垂直中心
+    // let blocks_y = bottom_area_top + bottom_area_height / 2.0; // 可拖拽方块位于底部区域的垂直中心
+    // 将方块位置向上移动 - 不再位于正中间，而是位于底部区域的上半部分
+    let blocks_y = bottom_area_top + bottom_area_height * 0.4; // 从0.5 (中心) 减少到0.4，与 draw_game 保持一致
     
     // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸，而非当前方块数量
     // 这样即使放置了方块，剩余方块的大小也不会突然变化
@@ -1267,11 +1322,33 @@ fn update_game(game: &mut Game) {
             let grid_size = screen_width() * 0.9;
             let cell_size = grid_size / 8.0;
             let grid_offset_x = (screen_width() - grid_size) / 2.0;
-            let grid_offset_y = screen_height() * 0.07;
             
-            // 检测小屏幕并调整间距
+            // 更新计算网格位置 - 使用宽高比
+            let aspect_ratio = screen_width() / screen_height();
+            
+            // 基于宽高比判断屏幕类型
+            let is_wide_screen = aspect_ratio > 0.8;   // 宽屏 (接近正方形)
+            let is_tall_screen = aspect_ratio < 0.5;   // 高屏 (典型手机竖屏)
             let is_small_screen = screen_height() < 600.0;
-            let spacing = if is_small_screen { 20.0 } else { 30.0 };
+            
+            // 使用与 draw_game 相同的顶部偏移计算
+            let grid_offset_y = if is_tall_screen {
+                screen_height() * 0.22  // 从 0.18 增加到 0.22，与 draw_game 保持一致
+            } else if is_wide_screen {
+                screen_height() * 0.12  // 从 0.07 增加到 0.12，与 draw_game 保持一致
+            } else {
+                screen_height() * 0.15  // 从 0.10 增加到 0.15，与 draw_game 保持一致
+            };
+            
+            // 更新分隔线和间距计算 - 使用宽高比
+            let spacing = if is_tall_screen {
+                60.0 // 高屏幕上使用更大间距
+            } else if is_wide_screen {
+                20.0 // 宽屏上使用较小间距
+            } else {
+                40.0 // 标准屏幕上使用中等间距
+            };
+            
             let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
             let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
             
