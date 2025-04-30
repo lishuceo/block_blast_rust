@@ -46,12 +46,13 @@
             /*background-color: rgba(0, 255, 0, 0.1);  Light green background for wrapper */
         }
 
-        /* Game Container: Maintains aspect ratio, fills height */
+        /* Game Container: Fills height, adapts width, max aspect ratio 2:3 */
         .game-container {
             height: 100%; /* Fill the flex-item height */
-            width: auto;  /* Width calculated based on height and aspect ratio */
-            max-width: 100%; /* Don't overflow horizontally */
-            aspect-ratio: 400 / 600; /* Enforce aspect ratio (adjust if needed) */
+            width: 100%; /* Try to fill width */
+            /* Set max-width based on height (100vh) and max 2:3 aspect ratio */
+            max-width: calc(100vh * (2 / 3)); 
+            /* max-width: 100%; */ /* <-- 移除或注释掉之前的 max-width: 100% */
             position: relative; /* For canvas positioning */
             overflow: hidden;
             /* background: black; */
@@ -105,7 +106,7 @@
     <!-- <script src="canvas_fixer.js"></script> -->
     
     <!-- 添加SCE SDK (需要先加载) -->
-    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.0.2/dist/sce.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.0.3/dist/sce.min.js"></script>
 </head>
 
 <body>
@@ -134,16 +135,133 @@
         // --- SCE SDK Configuration and Functions ---
         window.SCE_CONFIG = {
             developer_token: '830bb80b-f57b-447b-b41a-d701886202ec',
-            env: 'master'
+            env: 'pd'
         };
-        window.sce_init_sdk = function(token, env) { /* ... SCE function ... */ };
-        window.sce_login = async function() { /* ... SCE function ... */ };
-        window.sce_upload_score = async function(score) { /* ... SCE function ... */ };
-        window.sce_get_leaderboard = async function(limit) { /* ... SCE function ... */ };
-        window.sce_get_user_rank = async function() { /* ... SCE function ... */ };
-        window.checkWasmJitEnabled = function() { /* ... checkWasmJitEnabled function ... */ };
+        // 初始化SDK的辅助函数
+        window.sce_init_sdk = function(token, env) {
+            // 检查SceSDK对象是否存在
+            if (typeof SceSDK === 'undefined' || SceSDK === null) {
+                const errorMsg = "SCE SDK尚未加载或初始化失败";
+                console.error(errorMsg);
+                return JSON.stringify({success: false, message: errorMsg});
+            }
+            
+            try {
+                SceSDK.init({
+                    sce_developer_token: token,
+                    env: env || 'pd'
+                });
+                console.log("SCE SDK 初始化成功");
+                return JSON.stringify({success: true});
+            } catch (error) {
+                console.error("SCE SDK初始化失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 登录辅助函数
+        window.sce_login = async function() {
+            try {
+                await SceSDK.login();
+                const userInfo = SceSDK.get_user_info();
+                return JSON.stringify({
+                    success: true,
+                    user_id: userInfo.user_id,
+                    name: userInfo.name
+                });
+            } catch (error) {
+                console.error("SCE SDK登录失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 上传分数
+        window.sce_upload_score = async function(score) {
+            try {
+                const res = await SceSDK.cloud.set_number('player_score', score);
+                const result = await res.json();
+                return JSON.stringify({success: result.code === 0});
+            } catch (error) {
+                console.error("上传分数失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 获取排行榜
+        window.sce_get_leaderboard = async function(limit) {
+            console.log("call sce_get_leaderboard");
+            try {
+                const res = await SceSDK.cloud.get_top_rank('player_score', limit || 10, true, 'desc');
+                const result = await res.json();
+                console.log("获取排行榜成功:", result);
+                return JSON.stringify({
+                    success: result.code === 0,
+                    data: result.rows || []
+                });
+            } catch (error) {
+                console.error("获取排行榜失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 获取用户排名
+        window.sce_get_user_rank = async function() {
+            try {
+                const res = await SceSDK.cloud.get_user_rank('player_score');
+                const result = await res.json();
+                return JSON.stringify({
+                    success: result.code === 0,
+                    rank: result.rank,
+                    score: result.value,
+                    user_id: result.user_id
+                });
+            } catch (error) {
+                console.error("获取用户排名失败:", error);
+                return JSON.stringify({success: false, message: error.toString()});
+            }
+        };
+        
+        // 检测WebAssembly JIT状态
+        window.checkWasmJitEnabled = function() {
+            // 尝试检测Wasm是否可用和JIT状态
+            let jitStatus = "Unknown";
+            
+            // 检测WebAssembly基本支持
+            if (typeof WebAssembly === 'object') {
+                jitStatus = "Basic Support";
+                
+                // 检测一些高级特性可能表明JIT已启用
+                // 注意：浏览器不直接暴露JIT状态，这只是一个近似检测
+                if (WebAssembly.validate && WebAssembly.compile && WebAssembly.instantiate) {
+                    // 检测是否有流式编译支持（通常表示有JIT）
+                    if (typeof WebAssembly.instantiateStreaming === 'function') {
+                        jitStatus = "JIT Possible";
+                        
+                        // 进一步检测是否有SharedArrayBuffer和Atomics支持
+                        // 这些特性通常与高性能Wasm执行环境相关
+                        if (typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object') {
+                            jitStatus = "JIT Enabled";
+                        }
+                    }
+                }
+            } else {
+                jitStatus = "Not Supported";
+            }
+            
+            // 将状态存储在全局变量中，以便Rust代码通过FFI访问
+            window.wasmJitStatus = jitStatus;
+            
+            // 返回状态字符串
+            return jitStatus;
+        };
+        
+        // 在加载页面时立即检测
         window.wasmJitStatus = window.checkWasmJitEnabled();
-        window.getWasmJitStatus = function() { return window.wasmJitStatus || "Unknown"; };
+        
+        // 为Rust代码提供获取JIT状态的函数
+        window.getWasmJitStatus = function() {
+            return window.wasmJitStatus || "Unknown";
+        };
         // --- END SCE SDK ---
 
         // 加载WASM - User Added Code

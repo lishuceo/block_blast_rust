@@ -19,6 +19,7 @@ pub mod effects;
 pub mod cloud;
 pub mod log;
 pub mod drawing; // 添加 drawing 模块声明
+pub mod build_info; // <-- 添加这一行
 
 // 使用宏导入
 #[macro_use]
@@ -1518,8 +1519,8 @@ fn update_game(game: &mut Game) {
 fn window_conf() -> Conf {
     Conf {
         window_title: "方块消除游戏".to_string(),
-        window_width: 400,  // 移除固定宽度
-        window_height: 600, // 移除固定高度
+        window_width: 400,  // 保留宽度用于计算初始纵横比，但高度由CSS控制
+        // window_height: 600, // <-- 移除固定高度
         high_dpi: true,      // 保留高DPI支持
         sample_count: 1,      // 默认值
         window_resizable: false, // 保持不可调整大小
@@ -1672,7 +1673,7 @@ async fn run_game() {
 
         // 清理屏幕
         clear_background(COLOR_PRIMARY);
-        
+
         // 更新和绘制当前状态
         if game.transition_active {
             if !game.transition_phase {
@@ -1754,6 +1755,17 @@ async fn run_game() {
             game.upload_score().await; 
             game.needs_score_upload = false; // 重置标志
         }
+        
+        // --- 将绘制代码移动到这里，就在 next_frame 之前 ---
+        let build_time_text = &format!("build: {}", build_info::BUILD_TIMESTAMP);
+        let jit_status_text = &format!("JIT status: {}", get_wasm_jit_status());
+        // let debug_text = "调试: 文本渲染测试"; // 不再需要固定调试文本
+
+        // 使用 draw_text (默认左对齐) 绘制
+        draw_text(build_time_text, 10.0, 30.0, 18.0, Color::new(1.0, 1.0, 0.0, 1.0)); // 黄色
+        draw_text(jit_status_text, 10.0, 55.0, 18.0, Color::new(0.0, 1.0, 1.0, 1.0)); // 青色
+        // draw_chinese_text(debug_text, 10.0, 80.0, 18.0, Color::new(1.0, 0.5, 0.5, 1.0)); // 移除固定调试文本的绘制
+        // --- 绘制代码结束 ---
         
         // 等待下一帧
         next_frame().await;
@@ -2028,6 +2040,77 @@ fn draw_menu(game: &mut Game) {
             game.blocks_per_generation = 3;
         }
     } */
+}
+
+// 添加对JS函数的FFI绑定
+#[cfg(target_arch = "wasm32")]
+extern "C" {
+    // 不能直接调用 window.getWasmJitStatus，需要改为使用 js_invoke_string 类型的调用
+    fn js_invoke_string(js_code_ptr: *const u8, js_code_len: usize) -> i32;
+    fn js_get_result_ptr() -> *const u8;
+    fn js_get_result_len() -> usize;
+}
+
+// 安全包装函数获取JIT状态
+#[cfg(target_arch = "wasm32")]
+// use std::sync::Mutex; <-- 移除这行重复导入
+// use once_cell::sync::Lazy; // 需要确保导入 once_cell::sync::Lazy 和 std::sync::Mutex
+
+// 定义静态变量来缓存 JIT 状态
+// 注意: 理想情况下，这个静态定义应该在函数外部，位于模块级别。
+static JIT_STATUS_CACHE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
+fn get_wasm_jit_status() -> String {
+    // 尝试获取缓存锁
+    let mut cache_guard = JIT_STATUS_CACHE.lock().unwrap_or_else(|poisoned| {
+        // 处理锁中毒情况，这里简单地重置缓存并继续
+        log_warn!("JIT status cache lock poisoned, resetting.");
+        poisoned.into_inner()
+    });
+
+    // 检查缓存中是否已有值
+    if let Some(status) = cache_guard.as_ref() {
+        return status.clone(); // 如果有，直接返回克隆值
+    }
+
+    // 如果缓存为空，则执行 FFI 调用获取状态
+    // FFI 调用需要 unsafe 块
+    let status = unsafe {
+        // 构造 JS 调用代码
+        let js_code = "window.getWasmJitStatus()";
+        let js_code_bytes = js_code.as_bytes();
+        
+        // 调用JS并获取结果
+        // 假设 js_invoke_string, js_get_result_ptr, js_get_result_len 已在外部定义
+        js_invoke_string(js_code_bytes.as_ptr(), js_code_bytes.len());
+        
+        let result_ptr = js_get_result_ptr();
+        let result_len = js_get_result_len();
+        
+        if result_ptr.is_null() || result_len == 0 {
+            "未知".to_string() // JS 调用失败或未返回有效指针/长度
+        } else {
+            // 从结果指针和长度创建字节切片
+            let result_bytes = std::slice::from_raw_parts(result_ptr, result_len);
+            // 尝试将字节切片解码为 UTF-8 字符串
+            match std::str::from_utf8(result_bytes) {
+                Ok(s) => s.to_string(), // 解码成功，返回字符串
+                Err(_) => "解码错误".to_string() // 解码失败
+            }
+        }
+    };
+    
+    // 将获取到的状态存入缓存
+    *cache_guard = Some(status.clone());
+    
+    // 返回新获取的状态
+    status
+    // 当 cache_guard 离开作用域时，锁会自动释放
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_wasm_jit_status() -> String {
+    "非WASM环境 (Native)".to_string()
 }
 
 

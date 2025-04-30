@@ -514,6 +514,18 @@ pub async fn initialize_sdk() -> Result<(), String> {
     }
 }
 
+// 为非WebAssembly环境添加initialize_sdk函数实现
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn initialize_sdk() -> Result<(), String> {
+    log_info!("非WASM环境下模拟初始化SDK");
+    // 调用已有的init_cloud_service函数
+    let final_state = init_cloud_service().await;
+    // 更新全局状态
+    *CLOUD_STATE.lock().unwrap() = final_state.clone();
+    // 返回成功
+    Ok(())
+}
+
 // 添加别名函数
 pub async fn upload_score(score: u32) -> Result<(), String> {
     submit_score(score).await
