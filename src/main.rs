@@ -783,12 +783,28 @@ fn draw_game(game: &mut Game) {
         screen_height() * 0.15  // 从 0.10 增加到 0.15，与 draw_game 保持一致
     };
     
-    // 绘制游戏标题，字体大小根据DPI缩放
-    draw_chinese_text("逆向俄罗斯方块", 
-             screen_width() / 2.0,
-             grid_offset_y * 0.7,  // 从 grid_offset_y / 2.0 修改为 grid_offset_y * 0.7
-             20.0, // * dpi_scale, // 字体大小乘以DPI缩放 (Removed)
-             WHITE);
+    // 绘制最高分，字体大小根据DPI缩放
+    let high_score_text = format!("最高分: {}", game.cloud_high_score.unwrap_or(0));
+    let text_x = screen_width() / 2.0; // 水平居中
+    let text_y = grid_offset_y * 0.7;  // 使用原标题的垂直位置
+    let font_size = 20.0; // 使用原标题的字体大小 (Removed dpi_scale)
+    let gold_color = Color::new(1.0, 0.843, 0.0, 1.0); // 金色 (#FFD700)
+    let shadow_color = Color::new(0.0, 0.0, 0.0, 0.5); // 半透明黑色阴影
+    let shadow_offset = 2.0; // 阴影偏移量
+
+    // 绘制阴影 (投影)
+    draw_chinese_text(&high_score_text,
+             text_x + shadow_offset,
+             text_y + shadow_offset,
+             font_size,
+             shadow_color);
+
+    // 绘制主要文本 (金色)
+    draw_chinese_text(&high_score_text,
+             text_x,
+             text_y,
+             font_size,
+             gold_color);
     
     // 绘制游戏网格背景
     draw_rectangle(
@@ -826,16 +842,6 @@ fn draw_game(game: &mut Game) {
         WHITE
     );
     
-    // 显示最高分
-    draw_chinese_text(
-        // &format!("最高分: {}", game.save_data.high_score), 
-        &format!("最高分: {}", game.cloud_high_score.unwrap_or(0)), // 使用云端最高分
-        screen_width() - 100.0, // 向右调整，更美观
-        score_y, 
-        15.0, // * dpi_scale, (Removed)
-        WHITE
-    );
-    
     // 绘制分隔线 - 根据屏幕宽高比调整分隔线的位置
     // 调整间距 - 基于宽高比
     let spacing = if is_tall_screen {
@@ -848,14 +854,6 @@ fn draw_game(game: &mut Game) {
     
     let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
     let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
-    draw_line(
-        10.0,
-        separator_y,
-        screen_width() - 10.0,
-        separator_y,
-        2.0, // * dpi_scale, // 线宽度也随DPI缩放 (Removed)
-        Color::new(0.3, 0.3, 0.3, 1.0)
-    );
     
     // 绘制下方区域的背景
     // 确保底部区域至少有屏幕高度的一定比例
@@ -867,15 +865,6 @@ fn draw_game(game: &mut Game) {
         screen_height() * 0.20 // 标准底部区域大小
     };
     let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
-    
-    // 绘制可选方块区域的标题
-    draw_chinese_text(
-        "可拖拽方块", 
-        screen_width() / 2.0, // 居中显示
-        bottom_area_top + (if is_small_screen { 15.0 } else { 25.0 }), 
-        20.0, // * dpi_scale, // 字体大小乘以DPI缩放 (Removed)
-        WHITE
-    );
     
     // 绘制当前可选方块 - 在竖屏模式下水平排列
     // 计算垂直位置，使方块位于底部区域的中间
