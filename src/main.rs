@@ -1426,7 +1426,20 @@ fn update_game(game: &mut Game) {
                         let grid_size = screen_width() * 0.9;
                         let cell_size = grid_size / 8.0;
                         let grid_offset_x = (screen_width() - grid_size) / 2.0;
-                        let grid_offset_y = screen_height() * 0.07;
+                        
+                        // 修正：使用与其他地方相同的网格偏移计算
+                        let aspect_ratio = screen_width() / screen_height();
+                        let is_wide_screen = aspect_ratio > 0.8;   // 宽屏 (接近正方形)
+                        let is_tall_screen = aspect_ratio < 0.5;   // 高屏 (典型手机竖屏)
+                        
+                        // 使用与其他地方相同的网格偏移计算
+                        let grid_offset_y = if is_tall_screen {
+                            screen_height() * 0.22
+                        } else if is_wide_screen {
+                            screen_height() * 0.12
+                        } else {
+                            screen_height() * 0.15
+                        };
                         // --- 网格计算结束 ---
                         
                         // --- 原始方块位置计算 (与 draw_game 绘制底部方块一致) ---
@@ -1846,6 +1859,30 @@ async fn run_game() {
         
         // 等待下一帧
         next_frame().await;
+
+        // 在run_game函数内的适当位置添加键盘快捷键支持，可以放在主循环中其他输入处理之后
+
+        // 测试消息系统的键盘快捷键
+        if is_key_pressed(KeyCode::F1) {
+            show_debug!("F1键测试 - 调试消息");
+        }
+        if is_key_pressed(KeyCode::F2) {
+            show_info!("F2键测试 - 信息消息");
+        }
+        if is_key_pressed(KeyCode::F3) {
+            show_warn!("F3键测试 - 警告消息");
+        }
+        if is_key_pressed(KeyCode::F4) {
+            show_error!("F4键测试 - 错误消息");
+        }
+        if is_key_pressed(KeyCode::F5) {
+            // 测试多条消息
+            show_debug!("测试多条消息 1/5");
+            show_info!("测试多条消息 2/5");
+            show_warn!("测试多条消息 3/5");
+            show_error!("测试多条消息 4/5");
+            show_info!("测试多条消息 5/5 - 完成");
+        }
     }
 }
 

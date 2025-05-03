@@ -31,6 +31,7 @@ block_blast_rust/
 │   ├── cloud.rs            # 云服务和排行榜实现
 │   ├── random.rs           # 随机数生成工具
 │   ├── log.rs              # 跨平台日志系统
+│   ├── build_info.rs       # 构建时间信息
 │   └── minimal.rs          # 最小化示例代码
 ├── resources/              # 资源文件目录
 │   └── fonts/              # 字体文件
@@ -39,8 +40,10 @@ block_blast_rust/
 │       └── sce-game-sdk/   # SCE游戏SDK
 ├── Cargo.toml              # 项目依赖配置
 ├── Cargo.lock              # 依赖锁定文件
+├── build.rs                # 构建脚本，生成构建时间信息
 ├── build_wasm_clean.bat    # WASM 构建脚本 (Windows)
 ├── serve.py                # 简易 HTTP 服务器
+├── js_bridge.js            # JavaScript 桥接代码
 └── index_template.html     # WASM 页面模板
 ```
 
@@ -245,60 +248,121 @@ pub struct SaveData {
    - 通过 JavaScript 桥接调用 SCE Game SDK 的 API
    - 适配星火对战平台的排行榜和用户系统
 
-## 关键技术实现
+### 新增构建信息显示
 
-### 跨平台适配
+游戏新增了构建时间显示功能，帮助开发者追踪不同版本:
 
-1. **条件编译**:
-   - 使用 `#[cfg(target_arch = "wasm32")]` 条件编译，区分 WASM 和原生平台
-   - 根据平台提供不同实现
+1. **构建时间生成**:
+   - 使用 `build.rs` 脚本在编译时生成时间戳
+   - 通过 Cargo 的构建系统将时间戳写入 `build_info.rs` 文件
+   - 格式化显示时间和目标平台信息
 
-2. **DPI 缩放**:
-   - 通过 `get_dpi_scale()` 函数动态检测和适配不同显示设备的 DPI
+2. **实现细节**:
+   ```rust
+   // build.rs
+   let build_timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+   let build_info = format!("{} ({})", build_timestamp, target);
+   write!(f, "pub const BUILD_TIMESTAMP: &str = \"{}\";", build_info).unwrap();
+   ```
 
-3. **输入适配**:
-   - 同时支持鼠标和触摸输入
-   - 在移动设备上提供更大的触摸判定区域
+3. **界面集成**:
+   - 在游戏左上角显示构建时间和WebAssembly JIT状态
+   - 使用半透明小字体避免干扰游戏体验
+   - 通过JavaScript桥接获取WASM JIT状态
 
-### 中文文本渲染
+### 优化的响应式布局
 
-1. **字体加载**:
-   - 使用 `include_bytes!` 嵌入字体资源
-   - 通过 `once_cell` 实现字体的懒加载
+为解决不同屏幕比例下的显示问题，实现了新的自适应布局系统：
 
-2. **文本绘制**:
-   - `draw_chinese_text` 函数处理中文显示
-   - 支持居中对齐和基线调整
+1. **屏幕比例控制**:
+   - 在 `index_template.html` 中设置最大宽高比为2:3
+   - 使用弹性盒模型(flex)使内容居中
+   - CSS样式确保最佳屏幕利用率
 
-### 3D 效果渲染
+2. **动态布局计算**:
+   - 根据屏幕宽高比而非绝对尺寸计算元素位置
+   - 为宽屏、标准屏和高屏提供不同的布局参数
+   ```rust
+   // 基于宽高比判断屏幕类型
+   let aspect_ratio = screen_width() / screen_height();
+   let is_wide_screen = aspect_ratio > 0.8;   // 宽屏
+   let is_tall_screen = aspect_ratio < 0.5;   // 高屏
+   ```
 
-使用 2D 渲染技术模拟 3D 效果:
+3. **垂直空间优化**:
+   - 高屏设备上将网格下移至屏幕22%处
+   - 将底部可拖拽区域上移至底部高度的40%处
+   - 动态调整元素间距，适应不同屏幕大小
 
-1. **立体方块**:
-   - 使用多个三角形绘制立体感方块
-   - 计算亮面和暗面颜色，产生 3D 效果
+4. **安全区适配**:
+   - 考虑移动设备刘海屏、圆角等特殊区域
+   - 使用CSS环境变量确保内容不被系统UI元素遮挡
 
-2. **粒子效果**:
-   - 使用二维粒子系统创建爆炸、消除等特效
+### 增强的错误显示系统
 
-### WebAssembly 集成
+全新错误日志系统提供了更强大的调试能力：
 
-1. **纯净 WASM 构建**:
-   - 不依赖 wasm-bindgen，通过 macroquad 直接生成 WASM
+1. **多级日志显示**:
+   - 支持显示不同级别的日志：调试(蓝色)、信息(绿色)、警告(橙色)、错误(红色)
+   - 每种级别使用不同颜色和标签直观区分
+   - 默认显示错误和警告，而信息和调试可通过API调用显示
 
-2. **JavaScript 交互**:
-   - 通过 `macroquad::miniquad::invoke_js_with_result` 实现 WASM 与 JavaScript 的交互
-   - 实现云服务和排行榜功能
+2. **交互功能**:
+   - 可拖动日志窗口到屏幕任意位置
+   - 提供关闭按钮手动隐藏日志
+   - 清空按钮快速清除所有日志记录
 
-3. **SCE SDK 集成**:
-   - 使用 JavaScript 桥接函数连接 Rust 代码和 SCE SDK
-   - 提供登录、排行榜、分数上传等功能
-   - 支持离线和在线两种模式
+3. **JavaScript桥接**:
+   ```javascript
+   // 在js_bridge.js中实现
+   window.showGameMessage = function(message, level) {
+       level = level || 1; // 默认为info级别
+       displayErrorOnScreen(message, level);
+   }
+   ```
 
-4. **WASM 日志系统**:
-   - 通过 JavaScript 桥接将 Rust 日志输出到浏览器控制台
-   - 支持不同级别的日志（调试、信息、警告、错误）
-   - 提供便捷的日志宏接口，统一不同平台的日志体验
+4. **日志持久化**:
+   - 保留最近5条日志消息
+   - 每条消息带有时间戳
+   - 最新消息使用明亮色彩，旧消息使用暗色
+   - 错误信息显示30秒，其他级别显示15秒
+
+5. **视觉效果**:
+   - 使用CSS动画实现淡入淡出过渡
+   - 拖动时提供视觉反馈
+   - 支持触摸屏和鼠标操作
+
+## WASM调试系统
+
+新增了更强大的WebAssembly错误和日志显示系统：
+
+1. **显示层级**:
+   - `game_log_js` 函数将Rust日志转发到JavaScript
+   - 所有错误信息显示在屏幕上，同时发送到浏览器控制台
+   - 警告级别默认也显示在屏幕上
+
+2. **用法示例**:
+   ```rust
+   // Rust代码中使用
+   log_debug!("调试信息"); // 仅控制台显示
+   log_info!("普通信息");  // 仅控制台显示
+   log_warn!("警告信息");  // 控制台和屏幕都显示
+   log_error!("错误信息"); // 控制台和屏幕都显示
+   ```
+
+3. **JavaScript端使用**:
+   ```javascript
+   // 在浏览器控制台直接调用
+   window.showGameMessage("自定义消息", 0); // 调试(蓝色)
+   window.showGameMessage("自定义消息", 1); // 信息(绿色)
+   window.showGameMessage("自定义消息", 2); // 警告(橙色)
+   window.showGameMessage("自定义消息", 3); // 错误(红色)
+   ```
+
+4. **跨平台兼容**:
+   - 在WebAssembly环境使用JavaScript显示错误
+   - 在原生平台使用标准输出显示错误
+   - 两个平台保持API一致性
 
 ## SCE SDK 集成详解
 

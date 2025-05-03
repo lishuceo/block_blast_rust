@@ -136,7 +136,204 @@ const js_bridge_plugin = {
             }
         };
         
-        // 新增：Rust日志输出到控制台的函数 (已重命名)
+        // 存储最近的错误和日志消息
+        const recentMessages = [];
+        const MAX_MESSAGES = 5; // 最多显示5条消息
+        let isDragging = false; // 拖动状态标志
+        let dragOffset = { x: 0, y: 0 }; // 拖动偏移量
+        
+        // 添加用于在屏幕上显示错误的辅助函数
+        function displayErrorOnScreen(message, logLevel = 3) {
+            // 确定消息类型和颜色
+            let messageType, baseColor, darkColor;
+            switch(logLevel) {
+                case 0: // Debug
+                    messageType = "调试";
+                    baseColor = "#55aaff"; // 蓝色
+                    darkColor = "#3377cc";
+                    break;
+                case 1: // Info
+                    messageType = "信息";
+                    baseColor = "#55ff55"; // 绿色
+                    darkColor = "#33cc33";
+                    break;
+                case 2: // Warning
+                    messageType = "警告";
+                    baseColor = "#ffaa55"; // 橙色
+                    darkColor = "#cc7733";
+                    break;
+                case 3: // Error
+                default:
+                    messageType = "错误";
+                    baseColor = "#ff5555"; // 红色
+                    darkColor = "#cc3333";
+                    break;
+            }
+            
+            // 将新消息添加到最近消息列表中
+            const timestamp = new Date().toLocaleTimeString();
+            recentMessages.unshift({
+                text: `[${timestamp}] ${message}`, 
+                level: logLevel,
+                color: baseColor,
+                darkColor: darkColor,
+                type: messageType
+            }); // 添加到数组开头
+            
+            // 保持最多固定数量的消息
+            if (recentMessages.length > MAX_MESSAGES) {
+                recentMessages.pop(); // 移除最旧的消息
+            }
+            
+            // 创建或获取消息显示元素
+            let messageDisplay = document.getElementById('game-message-display');
+            if (!messageDisplay) {
+                messageDisplay = document.createElement('div');
+                messageDisplay.id = 'game-message-display';
+                messageDisplay.style.position = 'fixed';
+                messageDisplay.style.top = '20vh';  // 屏幕高度的20%处
+                messageDisplay.style.left = '10px';
+                messageDisplay.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
+                messageDisplay.style.padding = '10px';
+                messageDisplay.style.borderRadius = '5px';
+                messageDisplay.style.fontFamily = 'monospace';
+                messageDisplay.style.fontSize = '14px';
+                messageDisplay.style.maxWidth = '80%';
+                messageDisplay.style.maxHeight = '40vh'; // 限制最大高度
+                messageDisplay.style.overflow = 'auto'; // 允许滚动
+                messageDisplay.style.zIndex = '10000';  // 确保显示在最上层
+                messageDisplay.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.5)';
+                messageDisplay.style.cursor = 'move'; // 指示可拖动
+                document.body.appendChild(messageDisplay);
+                
+                // 添加拖动功能
+                messageDisplay.addEventListener('mousedown', startDrag);
+                messageDisplay.addEventListener('touchstart', startDrag, { passive: false });
+            }
+            
+            // 构建消息 HTML
+            let messageHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                    <div style="font-weight: bold; color: ${baseColor};">游戏${messageType}日志</div>
+                    <div style="display: flex; gap: 5px;">
+                        <button id="clear-logs-btn" style="background: #333; color: white; border: none; border-radius: 3px; padding: 2px 5px; cursor: pointer; font-size: 11px;">清空</button>
+                        <button id="close-logs-btn" style="background: #333; color: white; border: none; border-radius: 3px; padding: 2px 5px; cursor: pointer; font-size: 11px;">关闭</button>
+                    </div>
+                </div>
+            `;
+            
+            // 添加每条消息信息
+            recentMessages.forEach((msg, index) => {
+                const color = index === 0 ? msg.color : msg.darkColor;
+                const typeLabel = `<span style="color: ${color}; font-weight: bold;">[${msg.type}]</span>`;
+                messageHTML += `<div style="color: ${color}; margin-bottom: 3px;">• ${typeLabel} ${msg.text}</div>`;
+            });
+            
+            // 设置消息内容
+            messageDisplay.innerHTML = messageHTML;
+            
+            // 添加按钮事件处理
+            setTimeout(() => {
+                const closeBtn = document.getElementById('close-logs-btn');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', function(e) {
+                        e.stopPropagation(); // 阻止事件冒泡到拖动处理
+                        fadeOutAndHide(messageDisplay);
+                    });
+                }
+                
+                const clearBtn = document.getElementById('clear-logs-btn');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', function(e) {
+                        e.stopPropagation(); // 阻止事件冒泡到拖动处理
+                        recentMessages.length = 0;
+                        displayErrorOnScreen("日志已清空", 1); // 显示清空确认消息
+                    });
+                }
+            }, 0);
+            
+            // 显示几秒后自动隐藏
+            messageDisplay.style.display = 'block';
+            // 添加淡入动画
+            messageDisplay.style.animation = 'fadeIn 0.3s';
+            messageDisplay.style.opacity = '1';
+            
+            // 清除之前的定时器（如果有）
+            if (messageDisplay.hideTimer) {
+                clearTimeout(messageDisplay.hideTimer);
+            }
+            
+            // 设置自动隐藏，错误信息显示更长时间
+            const hideTimeout = logLevel >= 3 ? 10000 : 5000; // 错误显示30秒，其他15秒
+            messageDisplay.hideTimer = setTimeout(() => {
+                fadeOutAndHide(messageDisplay);
+            }, hideTimeout);
+            
+            // 辅助函数：淡出并隐藏元素
+            function fadeOutAndHide(element) {
+                element.style.animation = 'fadeOut 1s';
+                element.style.opacity = '0';
+                setTimeout(() => {
+                    element.style.display = 'none';
+                }, 1000);
+            }
+            
+            // 辅助函数：开始拖动
+            function startDrag(e) {
+                e.preventDefault();
+                
+                // 忽略按钮点击引起的拖动
+                if (e.target.tagName === 'BUTTON') return;
+                
+                isDragging = true;
+                
+                // 获取鼠标/触摸起始位置
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+                const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+                
+                // 计算偏移量
+                const rect = messageDisplay.getBoundingClientRect();
+                dragOffset.x = clientX - rect.left;
+                dragOffset.y = clientY - rect.top;
+                
+                // 添加移动和结束拖动事件监听器
+                document.addEventListener('mousemove', doDrag);
+                document.addEventListener('touchmove', doDrag, { passive: false });
+                document.addEventListener('mouseup', stopDrag);
+                document.addEventListener('touchend', stopDrag);
+                
+                // 拖动时添加一些视觉反馈
+                messageDisplay.style.boxShadow = '0 0 15px rgba(0, 0, 0, 0.7)';
+            }
+            
+            // 辅助函数：执行拖动
+            function doDrag(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+                
+                // 获取当前鼠标/触摸位置
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+                const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+                
+                // 移动元素
+                messageDisplay.style.left = (clientX - dragOffset.x) + 'px';
+                messageDisplay.style.top = (clientY - dragOffset.y) + 'px';
+            }
+            
+            // 辅助函数：停止拖动
+            function stopDrag() {
+                isDragging = false;
+                document.removeEventListener('mousemove', doDrag);
+                document.removeEventListener('touchmove', doDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                document.removeEventListener('touchend', stopDrag);
+                
+                // 恢复正常阴影
+                messageDisplay.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.5)';
+            }
+        }
+        
+        // 在game_log_js函数中修改调用方式，传递日志级别
         importObject.env.game_log_js = function(text_ptr, text_len, log_level) {
             if (!isWasmReady()) return 0; // 检查WASM是否就绪
             const mem_array = new Uint8Array(wasm_memory.buffer);
@@ -153,15 +350,48 @@ const js_bridge_plugin = {
                     break;
                 case 2: // Warning
                     console.warn(`[RUST] ${text}`);
+                    displayErrorOnScreen(text, 2); // 显示警告
                     break;
                 case 3: // Error
                     console.error(`[RUST] ${text}`);
+                    displayErrorOnScreen(text, 3); // 显示错误
                     break;
                 default:
                     console.log(`[RUST] ${text}`);
             }
             
             return 1; // 成功
+        };
+        
+        // 添加CSS动画
+        if (!document.getElementById('game-message-display-style')) {
+            const style = document.createElement('style');
+            style.id = 'game-message-display-style';
+            style.textContent = `
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(-10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes fadeOut {
+                    from { opacity: 1; }
+                    to { opacity: 0; }
+                }
+                /* 防止按钮在拖动时选中文本 */
+                #game-message-display {
+                    user-select: none;
+                    -webkit-user-select: none;
+                }
+                #game-message-display button:hover {
+                    background: #555 !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // 给window添加一个显示调试信息的全局函数
+        window.showGameMessage = function(message, level) {
+            level = level || 1; // 默认为info级别
+            displayErrorOnScreen(message, level);
         };
         
         // 获取结果字符串的指针

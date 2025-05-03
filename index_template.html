@@ -106,7 +106,7 @@
     <!-- <script src="canvas_fixer.js"></script> -->
     
     <!-- 添加SCE SDK (需要先加载) -->
-    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.0.3/dist/sce.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.0.2/dist/sce.min.js"></script>
 </head>
 
 <body>
@@ -129,16 +129,19 @@
     <script src="mq_js_bundle.js"></script>
     <!-- 添加JavaScript桥接代码（放在mq_js_bundle.js之后） -->
     <script src="js_bridge.js"></script>
+    <!-- 添加测试脚本 -->
+    <script src="test_messages.js"></script>
     
     <!-- 内联脚本也移到最后 -->
     <script>
         // --- SCE SDK Configuration and Functions ---
         window.SCE_CONFIG = {
-            developer_token: '830bb80b-f57b-447b-b41a-d701886202ec',
+            developer_token: 'db2c71a6-ed95-4fe7-a2ba-dfa2f6fd78b0',
             env: 'pd'
         };
         // 初始化SDK的辅助函数
         window.sce_init_sdk = function(token, env) {
+            console.log("sce_init_sdk called with token:", token, "and env:", env);
             // 检查SceSDK对象是否存在
             if (typeof SceSDK === 'undefined' || SceSDK === null) {
                 const errorMsg = "SCE SDK尚未加载或初始化失败";
@@ -191,7 +194,7 @@
         window.sce_get_leaderboard = async function(limit) {
             console.log("call sce_get_leaderboard");
             try {
-                const res = await SceSDK.cloud.get_top_rank('player_score', limit || 10, true, 'desc');
+                const res = await SceSDK.cloud.get_top_rank('player_score', limit || 10, false, 'desc');
                 const result = await res.json();
                 console.log("获取排行榜成功:", result);
                 return JSON.stringify({

@@ -224,7 +224,7 @@ pub async fn init_cloud_service() -> CloudState {
                                     }
                                 }
                                 // 登录API调用成功但业务逻辑失败 (e.g., 用户取消)
-                                log_warn!("登录未成功完成 (可能用户取消或 API 内部错误): {}", login_result_str);
+                                log_error!("登录未成功完成 (可能用户取消或 API 内部错误): {}", login_result_str);
                             },
                             Err(e) => {
                                 log_error!("解析登录结果失败: {}, 原始字符串: {}", e, login_result_str);
