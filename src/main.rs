@@ -4,13 +4,7 @@ use once_cell::sync::Lazy;
 use cloud::PlayerRank;
 use block_blast::GameMode; // 使用库名导入
 
-// 全局颜色常量 - 基于 #3C569E 的配色方案
-const COLOR_PRIMARY: Color = Color { r: 0.235, g: 0.337, b: 0.62, a: 1.0 };         // 主色 #3C569E
-const COLOR_PRIMARY_DARK: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.7 };   // 主色30%亮度，用于网格区域
-const COLOR_PRIMARY_OVERLAY: Color = Color { r: 0.118, g: 0.169, b: 0.31, a: 0.9 }; // 主色50%亮度，用于半透明覆盖层
-const COLOR_BORDER: Color = Color { r: 0.3, g: 0.3, b: 0.3, a: 1.0 };               // 边框色
-const COLOR_TITLE: Color = Color { r: 1.0, g: 0.4, b: 0.2, a: 1.0 };                // 标题色
-const SKYBLUE: Color = Color { r: 0.5, g: 0.7, b: 1.0, a: 1.0 };
+use crate::constants::{COLOR_PRIMARY, COLOR_PRIMARY_DARK, COLOR_PRIMARY_OVERLAY, COLOR_BORDER, COLOR_TITLE};
 
 pub mod block;
 pub mod grid;
@@ -19,7 +13,8 @@ pub mod effects;
 pub mod cloud;
 pub mod log;
 pub mod drawing; // 添加 drawing 模块声明
-pub mod build_info; // <-- 添加这一行
+mod constants;
+mod utils;    
 
 // 使用宏导入
 #[macro_use]
@@ -28,17 +23,6 @@ mod log_macro_import {
     pub use crate::log::*;
 }
 
-// 如果需要，显式导入TextAlign
-// use macroquad::text::TextAlign;
-
-// 移除不必要的导入
-// use wasm_bindgen::prelude::*;
-
-// 不需要导入自己定义的模块，因为它们已经在当前文件中声明
-// use crate::block;
-// use crate::grid;
-// use crate::save;
-// use crate::effects;
 
 // 将字体数据直接嵌入到可执行文件中
 const CHINESE_FONT_DATA: &[u8] = include_bytes!("../resources/fonts/SourceHanSansCN-Medium.ttf");
@@ -1836,14 +1820,10 @@ async fn run_game() {
         }
         
         // --- 将绘制代码移动到这里，就在 next_frame 之前 ---
-        let build_time_text = &format!("build: {}", build_info::BUILD_TIMESTAMP);
         let jit_status_text = &format!("JIT status: {}", get_wasm_jit_status());
-        // let debug_text = "调试: 文本渲染测试"; // 不再需要固定调试文本
 
         // 使用 draw_text (默认左对齐) 绘制
-        draw_text(build_time_text, 10.0, 30.0, 18.0, Color::new(1.0, 1.0, 0.0, 1.0)); // 黄色
         draw_text(jit_status_text, 10.0, 55.0, 18.0, Color::new(0.0, 1.0, 1.0, 1.0)); // 青色
-        // draw_chinese_text(debug_text, 10.0, 80.0, 18.0, Color::new(1.0, 0.5, 0.5, 1.0)); // 移除固定调试文本的绘制
         // --- 绘制代码结束 ---
         
         // 等待下一帧

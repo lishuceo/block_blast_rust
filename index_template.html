@@ -120,7 +120,7 @@
     </div>
     
     <!-- Debug Info Overlay -->
-    <div id="debug-overlay">Loading debug info...</div>
+    <div id="debug-overlay" style="display: none;">Loading debug info...</div>
     <!-- Safe Area Visualization - Removed -->
     <!-- <div id="safe-area-vis"></div> -->
     
@@ -335,7 +335,7 @@
                 console.warn("Resize handler: Invalid CSS dimensions detected.", cssWidth, cssHeight);
             }
 
-            updateDebugInfo();
+            //updateDebugInfo();
 
             if (typeof window.miniquad_update_canvas_size === 'function') {
                 window.miniquad_update_canvas_size();
@@ -349,10 +349,10 @@
             console.log("Page loaded - Simple Setup");
             setTimeout(() => {
                  resizeHandler();
-                 updateDebugInfo();
+                 //updateDebugInfo();
             }, 100);
 
-            setInterval(updateDebugInfo, 1000);
+            //setInterval(updateDebugInfo, 1000);
 
             // iOS specific fixes
             document.addEventListener('gesturestart', function(e) { e.preventDefault(); return false; });
