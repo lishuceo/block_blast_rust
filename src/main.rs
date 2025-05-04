@@ -767,8 +767,8 @@ fn draw_game(game: &mut Game) {
         screen_height() * 0.15  // 从 0.10 增加到 0.15，与 draw_game 保持一致
     };
     
-    // 绘制最高分，字体大小根据DPI缩放
-    let high_score_text = format!("最高分: {}", game.cloud_high_score.unwrap_or(0));
+    // 绘制当前分数，字体大小根据DPI缩放
+    let score_text = format!("{}", game.score);
     let text_x = screen_width() / 2.0; // 水平居中
     let text_y = grid_offset_y * 0.7;  // 使用原标题的垂直位置
     let font_size = 30.0; // 使用原标题的字体大小 (Removed dpi_scale)
@@ -777,18 +777,38 @@ fn draw_game(game: &mut Game) {
     let shadow_offset = 2.0; // 阴影偏移量
 
     // 绘制阴影 (投影)
-    draw_chinese_text(&high_score_text,
+    draw_chinese_text(&score_text,
              text_x + shadow_offset,
              text_y + shadow_offset,
              font_size,
              shadow_color);
 
     // 绘制主要文本 (金色)
-    draw_chinese_text(&high_score_text,
+    draw_chinese_text(&score_text,
              text_x,
              text_y,
              font_size,
-             gold_color);
+             WHITE);
+    
+    // 在左上角绘制最高分
+    let high_score_text = format!("  {}", game.cloud_high_score.unwrap_or(0));
+    let high_score_x = 20.0; // 左侧边距
+    let high_score_y = grid_offset_y * 0.25; // 顶部边距
+    let high_score_font_size = 20.0; // 字体大小
+    
+    // 绘制最高分阴影
+    draw_chinese_text(&high_score_text,
+             high_score_x + shadow_offset,
+             high_score_y + shadow_offset,
+             high_score_font_size,
+             shadow_color);
+             
+    // 绘制最高分文本
+    draw_chinese_text(&high_score_text,
+             high_score_x,
+             high_score_y,
+             high_score_font_size,
+             gold_color); 
     
     // 绘制游戏网格背景
     draw_rectangle(
@@ -817,14 +837,14 @@ fn draw_game(game: &mut Game) {
     game.effects.draw();
     
     // 显示游戏分数
-    let score_y = grid_offset_y + grid_size + 23.0;
-    draw_chinese_text(
-        &format!("分数: {}", game.score), 
-        40.0, // 向右调整，更美观
-        score_y, 
-        15.0, // * dpi_scale, (Removed)
-        WHITE
-    );
+    // let score_y = grid_offset_y + grid_size + 23.0;
+    // draw_chinese_text(
+    //     &format!("分数: {}", game.score), 
+    //     40.0, // 向右调整，更美观
+    //     score_y, 
+    //     15.0, // * dpi_scale, (Removed)
+    //     WHITE
+    // );
     
     // 绘制分隔线 - 根据屏幕宽高比调整分隔线的位置
     // 调整间距 - 基于宽高比
