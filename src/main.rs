@@ -6,7 +6,7 @@ use block_blast::GameMode; // 使用库名导入
 
 // 全局颜色常量 - 基于 #3C569E 的配色方案
 const COLOR_PRIMARY: Color = Color { r: 0.235, g: 0.337, b: 0.62, a: 1.0 };         // 主色 #3C569E
-const COLOR_PRIMARY_DARK: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 };   // 主色75%亮度，用于网格区域
+const COLOR_PRIMARY_DARK: Color = Color { r: 0.0, g: 0.0, b: 0.0, a: 0.7 };   // 主色30%亮度，用于网格区域
 const COLOR_PRIMARY_OVERLAY: Color = Color { r: 0.118, g: 0.169, b: 0.31, a: 0.9 }; // 主色50%亮度，用于半透明覆盖层
 const COLOR_BORDER: Color = Color { r: 0.3, g: 0.3, b: 0.3, a: 1.0 };               // 边框色
 const COLOR_TITLE: Color = Color { r: 1.0, g: 0.4, b: 0.2, a: 1.0 };                // 标题色
@@ -787,7 +787,7 @@ fn draw_game(game: &mut Game) {
     let high_score_text = format!("最高分: {}", game.cloud_high_score.unwrap_or(0));
     let text_x = screen_width() / 2.0; // 水平居中
     let text_y = grid_offset_y * 0.7;  // 使用原标题的垂直位置
-    let font_size = 20.0; // 使用原标题的字体大小 (Removed dpi_scale)
+    let font_size = 30.0; // 使用原标题的字体大小 (Removed dpi_scale)
     let gold_color = Color::new(1.0, 0.843, 0.0, 1.0); // 金色 (#FFD700)
     let shadow_color = Color::new(0.0, 0.0, 0.0, 0.5); // 半透明黑色阴影
     let shadow_offset = 2.0; // 阴影偏移量
@@ -870,7 +870,7 @@ fn draw_game(game: &mut Game) {
     // 计算垂直位置，使方块位于底部区域的中间
     // let blocks_y = bottom_area_top + bottom_area_height / 2.0; // 可拖拽方块位于底部区域的垂直中心
     // 将方块位置向上移动 - 不再位于正中间，而是位于底部区域的上半部分
-    let blocks_y = bottom_area_top + bottom_area_height * 0.4; // 从0.5 (中心) 减少到0.4，与 draw_game 保持一致
+    let blocks_y = bottom_area_top + bottom_area_height * 0.2; // 从0.5 (中心) 减少到0.4，与 draw_game 保持一致
     
     // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸，而非当前方块数量
     // 这样即使放置了方块，剩余方块的大小也不会突然变化
@@ -2062,7 +2062,6 @@ fn draw_menu(game: &mut Game) {
     
     // 高分显示
     let high_score_size = 24.0; // * dpi_scale; (Removed)
-    // let high_score_text = format!("最高分: {}", game.save_data.high_score);
     let high_score_text = format!("最高分: {}", game.cloud_high_score.unwrap_or(0)); // 使用云端最高分
     draw_chinese_text(&high_score_text, center_x, center_y - 30.0, high_score_size, WHITE);
     

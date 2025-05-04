@@ -81,6 +81,25 @@ block_blast_rust/
 6. **3D 效果渲染**:
    - `draw_cube_block` 函数实现立体感方块绘制
 
+### drawing.rs
+
+负责提供自定义的绘图函数，增强或优化 macroquad 的基本绘图能力:
+
+1.  **立体感方块**:
+    *   `draw_cube_block` 函数用于绘制具有简单 3D 效果的方块单元，增强视觉表现力。
+
+2.  **圆角矩形**:
+    *   新增了一套绘制圆角矩形的函数，用于 UI 元素（如按钮、面板）的绘制。
+    *   实现方式：通过组合 macroquad 的基本形状（矩形、圆形扇区、线条）来模拟圆角效果。
+    *   **优点**: 实现简单直观。
+    *   **潜在缺点**: 对于大量绘制，性能可能不如自定义着色器或网格方案。
+    *   **可用函数**:
+        *   `draw_rounded_rectangle(x, y, width, height, radius, color)`: 绘制实心圆角矩形。
+        *   `draw_rounded_rectangle_lines(x, y, width, height, radius, thickness, color)`: 绘制圆角矩形轮廓。
+        *   `draw_rounded_rectangle_with_shadow(x, y, width, height, radius, color, shadow_offset, shadow_color)`: 绘制带阴影的圆角矩形。
+        *   `draw_rounded_rectangle_with_border(x, y, width, height, radius, thickness, fill_color, border_color)`: 绘制带边框的圆角矩形。
+        *   `draw_rounded_rectangle_3d(x, y, width, height, radius, color, depth)`: 绘制带有简单3D效果（高光/阴影）的圆角矩形。
+
 ### 新增UI系统
 
 游戏新增了现代化UI界面系统，特别是全新的主菜单:
