@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+- Always respond in 中文
+- 使用了macroquad引擎就一定不要引入wasm-bindgen这个库
