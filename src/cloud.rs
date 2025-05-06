@@ -168,7 +168,7 @@ pub async fn init_cloud_service() -> CloudState {
         log_info!("开始初始化云服务...");
         
         // 1. 同步调用初始化 SDK
-        let init_js = r#"window.sce_init_sdk(window.SCE_CONFIG.developer_token, window.SCE_CONFIG.env || 'pd');"#;
+        let init_js = r#"window.sce_init_sdk(window.SCE_CONFIG.developer_token);"#;
         let init_result_str = invoke_js_with_result(init_js);
         log_info!("SDK 初始化结果 (同步): {}", init_result_str);
         
