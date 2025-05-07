@@ -16,7 +16,7 @@
             overflow: hidden; /* Prevent accidental scrollbars */
             position: fixed; /* Prevent iOS Safari scroll bouncing */
             top: 0; left: 0; right: 0; bottom: 0;
-            background: #3C569E; /* Base background */
+            background: #212e55; /* Base background */
             -webkit-touch-callout: none; /* Disable iOS callouts */
             -webkit-user-select: none; /* Disable selection */
             user-select: none;
@@ -206,7 +206,7 @@
             try {
                 const res = await SceSDK.cloud.get_top_rank({
                     key: 'player_score',
-                    limit: limit || 10,
+                    limit: limit || 20,
                     without_name: false,
                     order_by: 'desc'
                 });
@@ -250,36 +250,25 @@
         
         // 检测WebAssembly JIT状态
         window.checkWasmJitEnabled = function() {
-            // 尝试检测Wasm是否可用和JIT状态
-            let jitStatus = "Unknown";
-            
-            // 检测WebAssembly基本支持
-            if (typeof WebAssembly === 'object') {
-                jitStatus = "Basic Support";
-                
-                // 检测一些高级特性可能表明JIT已启用
-                // 注意：浏览器不直接暴露JIT状态，这只是一个近似检测
-                if (WebAssembly.validate && WebAssembly.compile && WebAssembly.instantiate) {
-                    // 检测是否有流式编译支持（通常表示有JIT）
-                    if (typeof WebAssembly.instantiateStreaming === 'function') {
-                        jitStatus = "JIT Possible";
-                        
-                        // 进一步检测是否有SharedArrayBuffer和Atomics支持
-                        // 这些特性通常与高性能Wasm执行环境相关
-                        if (typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object') {
-                            jitStatus = "JIT Enabled";
-                        }
-                    }
-                }
-            } else {
-                jitStatus = "Not Supported";
+            // 检查基本WebAssembly支持
+            if (typeof WebAssembly !== 'object') {
+                return "Not Supported";
             }
             
-            // 将状态存储在全局变量中，以便Rust代码通过FFI访问
-            window.wasmJitStatus = jitStatus;
+            // 检查核心WebAssembly功能
+            if (!WebAssembly.validate || !WebAssembly.compile || !WebAssembly.instantiate) {
+                return "Limited Support";
+            }
             
-            // 返回状态字符串
-            return jitStatus;
+            // 检查流式编译支持（JIT的良好指标）
+            if (typeof WebAssembly.instantiateStreaming !== 'function') {
+                return "Basic Support";
+            }
+            
+            // 基于性能的检测（可选）
+            // 运行小型测试并测量执行时间
+            
+            return "JIT Likely Enabled";
         };
         
         // 在加载页面时立即检测

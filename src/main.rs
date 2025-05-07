@@ -1840,7 +1840,7 @@ async fn run_game() {
         }
         
         // --- 将绘制代码移动到这里，就在 next_frame 之前 ---
-        let jit_status_text = &format!("JIT status: {}", get_wasm_jit_status());
+        let jit_status_text = &get_wasm_jit_status();
 
         // 使用 draw_text (默认左对齐) 绘制
         draw_text(jit_status_text, 10.0, 55.0, 18.0, Color::new(0.0, 1.0, 1.0, 1.0)); // 青色
