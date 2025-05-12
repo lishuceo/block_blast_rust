@@ -203,6 +203,7 @@ struct Game {
     drag_pos: Option<Vec2>,           // 拖拽位置 (左上角单元格中心)
     drag_offset: Vec2,                // 新增：拖动偏移量，记录手指与方块的初始偏移
     drag_original_pos: Option<Vec2>,  // 新增：拖拽开始时，方块在底部区域的原始中心位置
+    initial_mouse_drag_start_pos: Option<Vec2>, // 新增：记录拖动开始时的鼠标位置
     save_data: save::SaveData,        // 保留 SaveData 结构，但最高分不再使用它
     cloud_high_score: Option<u32>,    // 新增：从云端获取的最高分
     needs_score_upload: bool,         // 新增：标记是否需要在主循环中上传分数
@@ -224,6 +225,7 @@ struct Game {
     t_block_rotation: f32,            // T形方块旋转角度
     title_bounce: f32,                // 标题弹跳动画值
     animation_time: f32,              // 动画计时器
+    title_texture: Option<Texture2D>, // 新增：用于存储标题图像
     
     // 页面过渡动画相关变量
     transition_alpha: f32,            // 过渡透明度 (0.0-2.0: 0.0-1.0为淡出阶段, 1.0-2.0为淡入阶段)
@@ -247,8 +249,9 @@ impl Game {
             combo: 0,
             drag_block_idx: None,
             drag_pos: None,
-            drag_offset: Vec2::new(0.0, 0.0), // 初始化为零偏移
+            drag_offset: Vec2::new(0.0, 0.0), // 初始化为零偏移, 会在start_drag中设置
             drag_original_pos: None, // 初始化为 None
+            initial_mouse_drag_start_pos: None, // 初始化为 None
             save_data: save::SaveData::load(), // 仍然加载，但不再用于最高分判断
             cloud_high_score: None,    // 初始化为 None
             needs_score_upload: false, // 初始化为 false
@@ -270,6 +273,7 @@ impl Game {
             t_block_rotation: 0.0,
             title_bounce: 0.0,
             animation_time: 0.0,
+            title_texture: None, // 初始化标题图像为 None
             
             // 页面过渡动画相关变量
             transition_alpha: 1.0,
@@ -378,6 +382,7 @@ impl Game {
             
             if block_rect.contains(mouse_pos) {
                 self.drag_block_idx = Some(idx);
+                self.initial_mouse_drag_start_pos = Some(mouse_pos); // 记录拖动开始时的鼠标位置
                 
                 // --- 记录原始位置 --- 
                 self.drag_original_pos = Some(Vec2::new(block_pos_x, block_pos_y));
@@ -1373,39 +1378,64 @@ fn update_game(game: &mut Game) {
                         }
                         
                         // 核心改动：应用偏移量使方块位于手指上方
-                        let adjusted_pos = Vec2::new(
-                            mouse_pos.x + game.drag_offset.x,
-                            mouse_pos.y + game.drag_offset.y
-                        );
+                        // let adjusted_pos = Vec2::new(
+                        //     mouse_pos.x + game.drag_offset.x,
+                        //     mouse_pos.y + game.drag_offset.y
+                        // ); // 旧的 adjusted_pos 计算方式
                         
-                        // 计算方块左上角cell的中心点
-                        // 先计算方块几何中心
+                        // 计算方块几何中心 和 从几何中心到左上角cell的偏移 (scaled by cell_size)
                         let min_dx_all = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
                         let max_dx_all = block.cells.iter().map(|(dx, _)| *dx).max().unwrap_or(0);
                         let min_dy_all = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
                         let max_dy_all = block.cells.iter().map(|(_, dy)| *dy).max().unwrap_or(0);
-                        let _center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
-                        let _center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
+                        let _center_x = (min_dx_all + max_dx_all) as f32 / 2.0; // Relative to block's own 0,0
+                        let _center_y = (min_dy_all + max_dy_all) as f32 / 2.0; // Relative to block's own 0,0
                         
-                        // 从方块中心到左上角cell的偏移
                         let offset_to_top_left_x = (min_dx as f32 - _center_x) * cell_size;
                         let offset_to_top_left_y = (min_dy as f32 - _center_y) * cell_size;
+                        let block_geometry_to_top_left_offset = Vec2::new(offset_to_top_left_x, offset_to_top_left_y);
+
+                        let fixed_upward_offset_vector = game.drag_offset; // This is (0, -cell_size * 2.0)
+
+                        // --- 计算基础视觉位置 (不含动态补偿) ---
+                        // The anchor for the block (e.g. its center) is mouse_pos + fixed_upward_offset_vector
+                        // The top-left cell of the block is then offset from this anchor by block_geometry_to_top_left_offset
+                        let base_visual_anchor = mouse_pos + fixed_upward_offset_vector;
+                        let base_top_left_cell_center = base_visual_anchor + block_geometry_to_top_left_offset;
                         
-                        // 计算左上角cell的中心点坐标
-                        let top_left_cell_center = Vec2::new(
-                            adjusted_pos.x + offset_to_top_left_x,
-                            adjusted_pos.y + offset_to_top_left_y
-                        );
-                        
-                        game.drag_pos = Some(top_left_cell_center);
+                        // --- 计算动态拖动补偿 --- 
+                        let mut compensation_vector = Vec2::ZERO;
+                        if let Some(initial_drag_mouse_pos) = game.initial_mouse_drag_start_pos {
+                            let drag_delta_vector = mouse_pos - initial_drag_mouse_pos;
+                            let drag_distance = drag_delta_vector.length();
+
+                            if drag_distance > 1.0 { // 避免小距离抖动或除零
+                                let distance_for_max_compensation_effect = (screen_width().min(screen_height())) * 0.35; // 40% of smaller screen dim
+                                let max_compensation_magnitude = cell_size * 2.0; // 最大额外偏移2.0个格子
+
+                                let effective_drag_distance = drag_distance.min(distance_for_max_compensation_effect);
+                                
+                                let compensation_factor = (effective_drag_distance / distance_for_max_compensation_effect).powf(1.2); // 轻微加速
+                                let current_compensation_magnitude = compensation_factor * max_compensation_magnitude;
+                                
+                                compensation_vector = drag_delta_vector.normalize_or_zero() * current_compensation_magnitude;
+                            }
+                        }
+                        // --- 动态拖动补偿计算结束 ---
+
+                        // 设置最终的拖拽位置 (包含固定偏移和动态补偿)
+                        game.drag_pos = Some(base_top_left_cell_center + compensation_vector);
+
                     } else {
                         // 索引无效，重置拖拽状态
                         game.drag_block_idx = None;
                         game.drag_pos = None;
+                        game.initial_mouse_drag_start_pos = None; // 清理状态
                     }
                 } else {
                     // 这个分支不应该发生，但以防万一
                     game.drag_pos = None;
+                    game.initial_mouse_drag_start_pos = None; // 清理状态
                 }
             }
             
@@ -1494,6 +1524,9 @@ fn update_game(game: &mut Game) {
                                 placed_successfully = true;
                                 game.grid.place_block(block, corrected_x, corrected_y);
                                 
+                                // 方块成功放置后触发振动 (仅WASM)
+                                trigger_vibration_on_place(50); // 振动50毫秒
+
                                 if corrected_x != grid_x || corrected_y != grid_y {
                                     log_info!("位置已自动校正: 从({},{})到({},{})", grid_x, grid_y, corrected_x, corrected_y);
                                     // TODO: 添加声音或特效提示
@@ -1516,7 +1549,19 @@ fn update_game(game: &mut Game) {
                                     
                                     // 分数和连击
                                     game.combo += 1;
-                                    game.score += cleared * 100 * game.combo;
+                                    // game.score += cleared * 100 * game.combo; // 旧的计分方式
+
+                                    // 新的计分方式：为同时消除多行/列提供额外奖励
+                                    let base_score_for_turn = match cleared {
+                                        0 => 0, // 不应发生，因为 cleared > 0
+                                        1 => 100, // 消除1行/列
+                                        2 => 300, // 消除2行/列
+                                        3 => 500, // 消除3行/列
+                                        4 => 800, // 消除4行/列
+                                        c => 800 + (c - 4) * 300, // 消除5行/列及以上，每多一行/列额外加300
+                                    };
+                                    game.score += base_score_for_turn * game.combo;
+
                                 } else {
                                     game.combo = 0;
                                 }
@@ -1555,6 +1600,7 @@ fn update_game(game: &mut Game) {
                     game.drag_block_idx = None;
                     game.drag_pos = None;
                     game.drag_original_pos = None; // 清理状态
+                    game.initial_mouse_drag_start_pos = None; // 清理拖动起始位置
                 }
             }
             
@@ -1644,6 +1690,18 @@ async fn run_game() {
     let mut game = Game::new();
     let mut previous_state = game.state; // 跟踪上一个状态
     
+    // 异步加载标题图像
+    match load_texture("resources/asset/image/title.png").await { // 修改路径
+        Ok(texture) => {
+            game.title_texture = Some(texture);
+            log_info!("成功加载标题图像: resources/asset/image/title.png");
+        }
+        Err(e) => {
+            log_error!("加载标题图像失败: {:?}. 将使用文本标题作为后备。", e);
+            game.title_texture = None;
+        }
+    }
+
     // 初始化云服务
     game.init_cloud().await;
     
@@ -1882,28 +1940,56 @@ fn draw_main_menu(game: &mut Game) {
     
     let width = screen_width();
     let height = screen_height();
-    // let dpi_scale = get_dpi_scale(); // (Removed)
     
-    // 计算居中位置
     let center_x = width / 2.0;
     
-    // 标题文本 - 应用弹跳动画
-    let title_y = height * 0.2 + game.title_bounce;
-    let title_size = 48.0; // * dpi_scale; (Removed)
-    draw_chinese_text("方块爆破", center_x, title_y, title_size, COLOR_TITLE);
+    // 标题的基础Y轴位置 (用于布局，不含动画)
+    let title_layout_y_base = height * 0.2;
+    // 标题绘制时应用的Y轴位置 (包含动画)
+    let title_draw_y = title_layout_y_base + game.title_bounce;
     
-    // 副标题
-    let subtitle_y = title_y + 60.0; // * dpi_scale; (Removed)
-    let subtitle_size = 24.0; // * dpi_scale; (Removed)
-    draw_chinese_text("Rust 版本", center_x, subtitle_y, subtitle_size, Color::new(0.8, 0.8, 0.9, 1.0));
+    let mut title_layout_bottom_y = title_layout_y_base; // 用于后续元素的布局基准
+
+    if let Some(texture) = &game.title_texture {
+        let original_aspect_ratio = texture.width() / texture.height();
+        let display_width = width * 0.6; 
+        let display_height = display_width / original_aspect_ratio;
+        let display_x = center_x - display_width / 2.0;
+        
+        // 使用 title_draw_y 进行绘制
+        draw_texture_ex(
+            texture,
+            display_x,
+            title_draw_y - display_height / 2.0, // 调整Y轴使图像垂直居中于 title_draw_y
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(Vec2::new(display_width, display_height)),
+                ..Default::default()
+            },
+        );
+        // 使用 title_layout_y_base 计算布局用的底部位置
+        title_layout_bottom_y = title_layout_y_base + display_height / 2.0;
+    } else {
+        // 后备：如果图像加载失败，绘制文本标题
+        let title_size = 48.0;
+        // 使用 title_draw_y 进行绘制
+        draw_chinese_text("方块爆破", center_x, title_draw_y, title_size, COLOR_TITLE);
+        // 使用 title_layout_y_base 计算布局用的底部位置
+        title_layout_bottom_y = title_layout_y_base + title_size / 2.0; 
+    }
+    
+    // 副标题 - 定位在标题布局的下方 (移除)
+    // let subtitle_y = title_layout_bottom_y + 30.0; 
+    // let subtitle_size = 24.0;
+    // draw_chinese_text("Rust 版本", center_x, subtitle_y, subtitle_size, Color::new(0.8, 0.8, 0.9, 1.0));
     
     // 计算按钮尺寸和位置
-    let button_width = 200.0; // * dpi_scale; (Removed)
-    let button_height = 60.0; // * dpi_scale; (Removed)
+    let button_width = 200.0;
+    let button_height = 60.0;
     let button_x = center_x - button_width / 2.0;
     
-    // 开始游戏按钮
-    let start_button_y = height * 0.45;
+    // 开始游戏按钮 - Y轴位置调整为在标题下方 (移除了副标题)
+    let start_button_y = title_layout_bottom_y + 100.0; // 在标题下方留出合适的间距
     let start_button_rect = Rect::new(button_x, start_button_y, button_width, button_height);
     
     // 绘制开始游戏按钮（蓝色）
@@ -2151,6 +2237,7 @@ extern "C" {
     fn js_invoke_string(js_code_ptr: *const u8, js_code_len: usize) -> i32;
     fn js_get_result_ptr() -> *const u8;
     fn js_get_result_len() -> usize;
+    fn js_trigger_vibration(duration_ms: i32); // 新增 FFI 绑定
 }
 
 // 安全包装函数获取JIT状态
@@ -2213,6 +2300,19 @@ fn get_wasm_jit_status() -> String {
 #[cfg(not(target_arch = "wasm32"))]
 fn get_wasm_jit_status() -> String {
     "非WASM环境 (Native)".to_string()
+}
+
+// 安全包装函数用于触发振动
+#[cfg(target_arch = "wasm32")]
+fn trigger_vibration_on_place(duration_ms: i32) {
+    unsafe {
+        js_trigger_vibration(duration_ms);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn trigger_vibration_on_place(_duration_ms: i32) {
+    // 非WASM平台无操作
 }
 
 

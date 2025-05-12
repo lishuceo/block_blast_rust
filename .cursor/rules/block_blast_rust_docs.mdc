@@ -1,0 +1,89 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+description: Rules based on the Block Blast Rust project documentation.
+globs: ["src/**/*.rs", "web/**/*.js", "web/**/*.html", "Cargo.toml", "DOCUMENTATION.md"]
+alwaysApply: true
+---
+
+# Block Blast Rust 项目规则
+
+## 概述与技术栈
+
+- **项目类型**: 基于 Rust 和 macroquad 引擎的方块消除游戏。
+- **核心目标**: 将方块放置到 8x8 网格中，填满行或列以消除并得分。
+- **平台**: 跨平台 (桌面原生应用 和 WebAssembly - WASM)。
+- **坐标系**: X 轴从左到右递增，Y 轴从上到下递增。网格左上角为 (0,0)。
+- **主要技术**:
+    - Rust
+    - macroquad 0.4 ([src/main.rs](mdc:src/main.rs))
+    - miniquad 0.4
+    - once_cell 1.8
+    - SCE Game SDK (星火对战平台) ([src/cloud.rs](mdc:src/cloud.rs), [web/js_bridge.js](mdc:web/js_bridge.js))
+
+## 项目结构与核心模块
+
+- **源代码**: `src/`
+    - **主入口**: [src/main.rs](mdc:src/main.rs) (游戏状态管理, UI渲染, 游戏逻辑更新)
+    - **库入口**: [src/lib.rs](mdc:src/lib.rs) (导出所有模块)
+    - **方块**: [src/block.rs](mdc:src/block.rs) (方块形状定义和生成)
+    - **网格**: [src/grid.rs](mdc:src/grid.rs) (游戏网格和放置逻辑)
+    - **存档**: [src/save.rs](mdc:src/save.rs) (简化版，无实际持久化)
+    - **特效**: [src/effects.rs](mdc:src/effects.rs) (粒子效果)
+    - **云服务**: [src/cloud.rs](mdc:src/cloud.rs) (SCE SDK 集成, 排行榜)
+    - **日志**: [src/log.rs](mdc:src/log.rs) (跨平台日志系统)
+    - **构建信息**: [src/build_info.rs](mdc:src/build_info.rs) (由 [build.rs](mdc:build.rs) 生成)
+    - **绘图扩展**: `drawing.rs` (自定义绘图函数，如圆角矩形、3D方块)
+- **资源**: `resources/` (如字体)
+- **WebAssembly**: `web/`
+    - **JS桥接**: [web/js_bridge.js](mdc:web/js_bridge.js)
+    - **HTML模板**: [web/index_template.html](mdc:web/index_template.html)
+- **构建脚本**: [build.rs](mdc:build.rs) (生成构建时间信息)
+- **依赖配置**: [Cargo.toml](mdc:Cargo.toml)
+
+## 关键实现细节
+
+### UI 系统 ([src/main.rs](mdc:src/main.rs))
+- **多层级菜单**: MainMenu, Menu, Playing, GameOver, Leaderboard.
+- **现代UI元素**: 圆角按钮, 动画效果 (弹跳, 旋转), Figma 设计。
+- **中文文本**: `draw_chinese_text` 函数。
+- **响应式布局**: 适配不同屏幕比例，使用 `index_template.html` 中的 CSS 和动态计算。
+
+### 日志系统 ([src/log.rs](mdc:src/log.rs), [web/js_bridge.js](mdc:web/js_bridge.js))
+- **级别**: Debug, Info, Warning, Error.
+- **平台适配**:
+    - WASM: JS桥接至浏览器控制台 (`console_log` in [web/js_bridge.js](mdc:web/js_bridge.js)).
+    - 原生: `println!`/`eprintln!`.
+- **宏**: `log_debug!`, `log_info!`, `log_warn!`, `log_error!`.
+- **增强错误显示**: 屏幕上可拖动、可关闭的日志窗口，不同级别颜色区分。
+
+### SCE SDK 集成 ([src/cloud.rs](mdc:src/cloud.rs), [web/js_bridge.js](mdc:web/js_bridge.js), [web/index_template.html](mdc:web/index_template.html))
+- **目的**: 在线排行榜和用户系统。
+- **集成方式**: JS桥接 (`invoke_js_with_result` 从 Rust 调用 JS)。
+- **关键JS函数**: `sce_init_sdk`, `sce_login`, `sce_upload_score`, `sce_get_leaderboard`, `sce_get_user_rank`.
+- **配置**: 开发者令牌和游戏ID需在 [web/index_template.html](mdc:web/index_template.html) 中配置 `window.SCE_CONFIG`。
+- **运行模式**: 在线模式 (WASM) 和本地模式 (非WASM, 模拟数据)。
+
+### WASM 与 JavaScript 交互
+- **JS桥接文件**: [web/js_bridge.js](mdc:web/js_bridge.js) 包含JS侧实现。
+- **Rust端接口**: 使用 `extern "C"` 声明外部JS函数。
+- **交互机制**: 通过 miniquad 插件系统注册函数，处理内存分配和字符串传递。
+
+## 构建与运行
+
+- **原生构建**: `cargo run --release`
+- **WASM构建**:
+    1. `rustup target add wasm32-unknown-unknown`
+    2. `cargo build --release --target wasm32-unknown-unknown`
+    3. `cd web && npm install sce-game-sdk --save` (安装SCE SDK)
+- **运行本地服务器**: `python serve.py` (在 `web/` 目录下)
+
+## 重要约定和提示
+
+- **macroquad 项目**: 不要引入 `wasm-bindgen`。
+- **文档更新**: 每当有新的技术实现（架构变动、新增函数/类/文件等），都需要更新 [DOCUMENTATION.md](mdc:DOCUMENTATION.md)。
+- **坐标系**: X轴向右，Y轴向下。
+- **SCE SDK令牌**: 必须在 [web/index_template.html](mdc:web/index_template.html) 中设置有效的开发者令牌。
+

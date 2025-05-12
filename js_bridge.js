@@ -425,6 +425,24 @@ const js_bridge_plugin = {
             const encoder = new TextEncoder();
             return encoder.encode(last_js_result).length;
         };
+
+        // 新增：将 js_trigger_vibration 添加到 env 对象
+        importObject.env.js_trigger_vibration = function(duration_ms) {
+            if (navigator.vibrate) {
+                try {
+                    if (typeof duration_ms === 'number' && duration_ms > 0) {
+                        navigator.vibrate(duration_ms);
+                        // console.log("Vibrating for " + duration_ms + "ms"); // 用于调试
+                    } else {
+                        // console.warn("Invalid duration for vibration: " + duration_ms);
+                    }
+                } catch (e) {
+                    // console.error("Vibration failed: ", e);
+                }
+            } else {
+                // console.log("Vibration API not supported."); // 用于调试
+            }
+        };
     }
 };
 
@@ -450,3 +468,21 @@ if (typeof miniquad_add_plugin === 'function') {
 }
 
 // 移除旧的内存函数设置逻辑，因为Rust端会导出它们 
+
+// 在 js_bridge.js 文件末尾添加 (这部分现在会被移到插件内部，所以可以考虑移除或保留作为 window 对象的备用)
+/* window.js_trigger_vibration = function(duration_ms) {
+    if (navigator.vibrate) {
+        try {
+            if (typeof duration_ms === 'number' && duration_ms > 0) {
+                navigator.vibrate(duration_ms);
+                // console.log("Vibrating for " + duration_ms + "ms"); // 用于调试
+            } else {
+                // console.warn("Invalid duration for vibration: " + duration_ms);
+            }
+        } catch (e) {
+            // console.error("Vibration failed: ", e);
+        }
+    } else {
+        // console.log("Vibration API not supported."); // 用于调试
+    }
+}; */ 
