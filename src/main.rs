@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use cloud::PlayerRank;
 use block_blast::GameMode; // 使用库名导入
+use block_blast::wave::{WaveManager, WavePhase, ChallengeType}; // 新的导入，使用 crate 名
 
 use crate::constants::{COLOR_PRIMARY, COLOR_PRIMARY_DARK, COLOR_PRIMARY_OVERLAY, COLOR_BORDER, COLOR_TITLE};
 
@@ -208,10 +209,8 @@ struct Game {
     cloud_high_score: Option<u32>,    // 新增：从云端获取的最高分
     needs_score_upload: bool,         // 新增：标记是否需要在主循环中上传分数
     game_mode: GameMode,              // 新增：游戏模式枚举
-    simple_block_chance: i32,         // 保留，但可能不再直接使用
-    standard_block_chance: i32,       // 保留，但可能不再直接使用
-    blocks_per_generation: usize,     // 每次生成的方块数量 (1-5)
     effects: effects::Effects,         // 特效系统
+    wave_manager: WaveManager, // <--- 新增字段
     
     // 排行榜相关字段
     leaderboard_data: Vec<cloud::PlayerRank>, // 排行榜数据
@@ -255,11 +254,9 @@ impl Game {
             save_data: save::SaveData::load(), // 仍然加载，但不再用于最高分判断
             cloud_high_score: None,    // 初始化为 None
             needs_score_upload: false, // 初始化为 false
-            game_mode: GameMode::Happy, // 默认设为简单模式
-            simple_block_chance: 30,  // 保留默认值，但可能不再使用
-            standard_block_chance: 60, // 保留默认值，但可能不再使用
-            blocks_per_generation: 3, // 默认生成3个方块
+            game_mode: GameMode::Happy, // 默认设为开心模式 (可以考虑移除或让 WaveManager 控制?)
             effects: effects::Effects::new(), // 初始化特效系统
+            wave_manager: WaveManager::new(), // <--- 初始化 WaveManager
             
             // 排行榜相关字段
             leaderboard_data: Vec::new(), // 排行榜数据
@@ -291,10 +288,16 @@ impl Game {
     fn generate_blocks(&mut self) {
         self.current_blocks.clear();
         
-        // 随机生成设定数量的方块
-        for _ in 0..self.blocks_per_generation {
-            // let block = block::BlockShape::generate_for_mode(self.easy_mode); // 使用旧的布尔值
-            let block = block::BlockShape::generate_for_mode(self.game_mode); // 使用新的枚举值
+        // 从 WaveManager 获取当前的生成数量和复杂度
+        let num_blocks = self.wave_manager.blocks_per_generation;
+        let complexity = self.wave_manager.block_complexity_factor;
+        
+        log_info!("Generating {} blocks with complexity {:.2}", num_blocks, complexity); // 添加日志
+        
+        for i in 0..num_blocks {
+            // 使用新的 generate_with_complexity 函数
+            log_debug!("Generating block {}/{} using complexity {:.2}", i+1, num_blocks, complexity);
+            let block = block::BlockShape::generate_with_complexity(complexity); 
             self.current_blocks.push(block);
         }
     }
@@ -349,13 +352,13 @@ impl Game {
         
         // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸
         let max_block_size = cell_size * 4.0; // 最大方块尺寸
-        let block_size = if self.blocks_per_generation <= 2 {
+        let block_size = if self.wave_manager.blocks_per_generation <= 2 {
             max_block_size // 对于1-2个最大方块，使用最大尺寸
         } else {
             // 对于更多方块，减小尺寸以适应屏幕
             // 考虑屏幕大小，在小屏幕上进一步减小尺寸
             let width_factor = if is_small_screen { 0.80 } else { 0.85 };
-            (screen_width() * width_factor) / (self.blocks_per_generation as f32 * 1.2)
+            (screen_width() * width_factor) / (self.wave_manager.blocks_per_generation as f32 * 1.2)
         };
         
         let block_margin = block_size * 0.2; // 方块之间的间距根据方块大小缩放
@@ -815,6 +818,32 @@ fn draw_game(game: &mut Game) {
              high_score_font_size,
              gold_color); 
     
+    // --- 绘制 WaveManager 状态信息 ---
+    let wave_phase = game.wave_manager.get_current_phase();
+    let phase_text = match wave_phase {
+        WavePhase::Accumulation => "阶段：积累",
+        WavePhase::ChallengeIncoming => "挑战来袭！",
+        WavePhase::ChallengeActive(challenge_type) => match challenge_type {
+            ChallengeType::BlockFlood => "挑战：方块潮！",
+            ChallengeType::TargetRows(_) => "挑战：消除目标行！",
+            ChallengeType::TargetCols(_) => "挑战：消除目标列！",
+        },
+        WavePhase::Relief => "阶段：缓和",
+    };
+    let phase_text_font_size = 18.0; // 字体大小
+    let phase_text_x = screen_width() - 20.0; // 右侧边距
+    let phase_text_y = grid_offset_y * 0.25;    // 与最高分对齐或略下方
+    let phase_text_width = measure_text(phase_text, None, phase_text_font_size as u16, 1.0).width;
+    // 右对齐绘制
+    draw_chinese_text(
+        phase_text, 
+        phase_text_x - phase_text_width, // x 坐标调整为右对齐
+        phase_text_y, 
+        phase_text_font_size, 
+        WHITE
+    );
+    // --- 结束 WaveManager 状态信息绘制 ---
+
     // 绘制游戏网格背景
     draw_rectangle(
         grid_offset_x - 5.0,
@@ -835,21 +864,25 @@ fn draw_game(game: &mut Game) {
         COLOR_BORDER
     );
     
-    // 绘制游戏网格
-    game.grid.draw(grid_offset_x, grid_offset_y, cell_size);
+    // 绘制游戏网格 - 需要传递 WaveManager 的目标行/列信息
+    // game.grid.draw(grid_offset_x, grid_offset_y, cell_size); // 旧的调用
+    let active_targets = if let WavePhase::ChallengeActive(ChallengeType::TargetRows(_)) | WavePhase::ChallengeActive(ChallengeType::TargetCols(_)) = wave_phase {
+        Some(game.wave_manager.get_active_target_lines())
+    } else {
+        None
+    };
+    let is_target_rows = matches!(wave_phase, WavePhase::ChallengeActive(ChallengeType::TargetRows(_)));
+    
+    game.grid.draw_with_highlights(
+        grid_offset_x, 
+        grid_offset_y, 
+        cell_size, 
+        active_targets, // Option<&Vec<usize>>
+        is_target_rows  // bool, true if rows, false if cols (if active_targets is Some)
+    );
     
     // 更新粒子效果系统
     game.effects.draw();
-    
-    // 显示游戏分数
-    // let score_y = grid_offset_y + grid_size + 23.0;
-    // draw_chinese_text(
-    //     &format!("分数: {}", game.score), 
-    //     40.0, // 向右调整，更美观
-    //     score_y, 
-    //     15.0, // * dpi_scale, (Removed)
-    //     WHITE
-    // );
     
     // 绘制分隔线 - 根据屏幕宽高比调整分隔线的位置
     // 调整间距 - 基于宽高比
@@ -884,13 +917,13 @@ fn draw_game(game: &mut Game) {
     // 计算方块布局 - 根据最大方块数量(blocks_per_generation)确定尺寸，而非当前方块数量
     // 这样即使放置了方块，剩余方块的大小也不会突然变化
     let max_block_size = cell_size * 4.0; // 最大方块尺寸
-    let block_size = if game.blocks_per_generation <= 2 {
+    let block_size = if game.wave_manager.blocks_per_generation <= 2 {
         max_block_size // 对于1-2个最大方块，使用最大尺寸
     } else {
         // 对于更多方块，减小尺寸以适应屏幕
         // 考虑屏幕大小，在小屏幕上进一步减小尺寸
         let width_factor = if is_small_screen { 0.80 } else { 0.85 };
-        (screen_width() * width_factor) / (game.blocks_per_generation as f32 * 1.2)
+        (screen_width() * width_factor) / (game.wave_manager.blocks_per_generation as f32 * 1.2)
     };
     
     let block_margin = block_size * 0.2; // 方块之间的间距根据方块大小缩放
@@ -898,27 +931,27 @@ fn draw_game(game: &mut Game) {
     let start_x = (screen_width() - total_width) / 2.0;
     
     // --- 绘制底部可选方块 --- 
-    for (idx, block) in game.current_blocks.iter().enumerate() {
+    for (idx, block) in game.current_blocks.iter().enumerate() { // <--- Ensure this is 'block', not '_block'
         let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
         let block_pos_y = blocks_y;
         
         // 检查是否是正在返回动画的块，如果是则跳过
         if let Some(anim_data) = &game.animating_block {
             if anim_data.block_idx == idx {
-                continue; // 跳过绘制，因为它由动画逻辑绘制
+                continue; 
             }
         }
         
         // 检查是否是正在拖拽的块，如果是则绘制透明占位符
         let draw_color = if game.drag_block_idx == Some(idx) {
-            Color::new(block.color.r/2.0, block.color.g/2.0, block.color.b/2.0, 0.3) // 手动创建透明颜色
+            Color::new(block.color.r/2.0, block.color.g/2.0, block.color.b/2.0, 0.3) // 使用 block.color
         } else {
-            block.color // 正常颜色
+            block.color // 使用 block.color
         };
 
         // 绘制方块 - 根据方块尺寸调整单元格大小
         let cell_scale = block_size / (cell_size * 5.0); // 调整单元格大小与方块大小的比例
-        for &(dx, dy) in &block.cells {
+        for &(dx, dy) in &block.cells { // 使用 block.cells
             let x = block_pos_x + dx as f32 * cell_size * cell_scale;
             let y = block_pos_y + dy as f32 * cell_size * cell_scale;
             drawing::draw_cube_block(x - cell_size * cell_scale / 2.0, y - cell_size * cell_scale / 2.0, 
@@ -928,21 +961,15 @@ fn draw_game(game: &mut Game) {
     
     // --- 绘制返回动画中的方块 --- 
     if let Some(anim_data) = &game.animating_block {
-        // 确保索引有效
         if anim_data.block_idx < game.current_blocks.len() {
-            let block = &game.current_blocks[anim_data.block_idx];
-            
-            // 使用动画的 current_pos 绘制
-            // 注意：动画位置是中心点，需要调整单元格绘制
-            // 找到最左上角的cell
+            let block = &game.current_blocks[anim_data.block_idx]; // 这里已经是 block
+            // ... (rest of animation drawing logic uses block correctly) ...
             let mut min_dx = i32::MAX;
             let mut min_dy = i32::MAX;
             for &(dx, dy) in &block.cells {
                 if dx < min_dx { min_dx = dx; }
                 if dy < min_dy { min_dy = dy; }
             }
-            
-            // 绘制时使用网格单元格大小 (cell_size)，因为它是移动到网格或从网格返回
             for &(dx, dy) in &block.cells {
                 let rel_dx = dx - min_dx;
                 let rel_dy = dy - min_dy;
@@ -955,90 +982,66 @@ fn draw_game(game: &mut Game) {
     
     // 绘制拖拽中的方块
     if let (Some(block_idx), Some(pos)) = (game.drag_block_idx, game.drag_pos) {
-        // 确保索引有效
         if block_idx < game.current_blocks.len() {
-            let block = &game.current_blocks[block_idx];
+            let block = &game.current_blocks[block_idx]; 
             
             // 找到最左上角的cell（最小x和y坐标的cell）
             let mut min_dx = i32::MAX;
             let mut min_dy = i32::MAX;
-            for &(dx, dy) in &block.cells {
-                if dx < min_dx {
-                    min_dx = dx;
+            for &(dx_cell, dy_cell) in &block.cells { // Renamed to avoid conflict with loop vars later
+                if dx_cell < min_dx {
+                    min_dx = dx_cell;
                 }
-                if dy < min_dy {
-                    min_dy = dy;
+                if dy_cell < min_dy {
+                    min_dy = dy_cell;
                 }
             }
             
-            // 计算方块的几何中心
-            let min_dx_all = block.cells.iter().map(|(dx, _)| *dx).min().unwrap_or(0);
-            let max_dx_all = block.cells.iter().map(|(dx, _)| *dx).max().unwrap_or(0);
-            let min_dy_all = block.cells.iter().map(|(_, dy)| *dy).min().unwrap_or(0);
-            let max_dy_all = block.cells.iter().map(|(_, dy)| *dy).max().unwrap_or(0);
-
-            let center_x = (min_dx_all + max_dx_all) as f32 / 2.0;
-            let center_y = (min_dy_all + max_dy_all) as f32 / 2.0;
-            
-            // 计算左上角cell在网格中的坐标
-            // pos现在是左上角cell的中心点
+            // --- 恢复 can_place, corrected_x, corrected_y 的计算 --- 
+            // 计算左上角cell在网格中的坐标 (pos是拖拽方块左上角cell的中心)
             let grid_top_left_x = ((pos.x - grid_offset_x) / cell_size).floor();
             let grid_top_left_y = ((pos.y - grid_offset_y) / cell_size).floor();
             
-            // 计算网格坐标（以左上角cell为基准）
-            let grid_x = grid_top_left_x as i32 - min_dx;
-            let grid_y = grid_top_left_y as i32 - min_dy;
+            // 计算方块整体在网格中的基准坐标 (以方块自身的0,0为基准的那个cell对应到网格的哪个格子)
+            let base_grid_x = grid_top_left_x as i32 - min_dx;
+            let base_grid_y = grid_top_left_y as i32 - min_dy;
             
-            // 判断是否在有效网格范围内
-            let is_valid_pos = grid_x >= -1 && grid_x < 9 && grid_y >= -1 && grid_y < 9; // 扩大检测范围
-            
-            // 使用容错功能检查放置 - 仅用于预览
-            let (can_place, corrected_x, corrected_y) = if is_valid_pos {
-                game.grid.can_place_block_with_tolerance(block, grid_x, grid_y, 1) // 1格容错距离
+            // 判断是否在有效网格范围内进行预览检查 (可以稍微放宽，因为只是预览)
+            let is_valid_for_preview_check = 
+                base_grid_x > - (block.cells.iter().map(|(cx,_)|cx.abs()).max().unwrap_or(0) + 2) && 
+                base_grid_x < (8 + block.cells.iter().map(|(cx,_)|cx.abs()).max().unwrap_or(0) + 2) &&
+                base_grid_y > - (block.cells.iter().map(|(_,cy)|cy.abs()).max().unwrap_or(0) + 2) &&
+                base_grid_y < (8 + block.cells.iter().map(|(_,cy)|cy.abs()).max().unwrap_or(0) + 2);
+
+            let (can_place, corrected_x, corrected_y) = if is_valid_for_preview_check {
+                game.grid.can_place_block_with_tolerance(block, base_grid_x, base_grid_y, 1) 
             } else {
-                (false, grid_x, grid_y)
+                (false, base_grid_x, base_grid_y) // 如果完全在网格外，不尝试容错
             };
+            // --- 计算结束 ---
             
             // 为所有单元格绘制预览
             for &(dx, dy) in &block.cells {
-                // 使用校正后的坐标绘制预览
                 let preview_x = grid_offset_x + (corrected_x + dx) as f32 * cell_size;
                 let preview_y = grid_offset_y + (corrected_y + dy) as f32 * cell_size;
                 
-                // 仅当预览位置在有效范围内时才绘制
                 if (corrected_x + dx) >= 0 && (corrected_x + dx) < 8 && (corrected_y + dy) >= 0 && (corrected_y + dy) < 8 {
-                    // 根据能否放置绘制不同颜色
                     if can_place {
-                        // 半透明绿色
                         draw_rectangle(preview_x, preview_y, cell_size, cell_size, 
                                        Color::new(0.2, 0.8, 0.2, 0.7));
-                        
-                        // // 如果是校正后的位置，添加闪烁边框提示用户
-                        // if corrected_x != grid_x || corrected_y != grid_y {
-                        //     let pulse = (get_time() * 5.0).sin() * 0.5 + 0.5;
-                        //     drawing::draw_cube_block(preview_x, preview_y, cell_size, 
-                        //                Color::new(1.0, 1.0, 1.0, 0.5 + 0.3 * pulse as f32));
-                        // }
                     } else {
-                        // 半透明红色
                         draw_rectangle(preview_x, preview_y, cell_size, cell_size, 
                                        Color::new(0.8, 0.2, 0.2, 0.7));
                     }
                 }
             }
             
-            // 在网格上拖动时绘制方块
+            // 在网格上拖动时绘制方块 (实际方块，不是预览)
+            // pos 是拖拽方块的左上角cell的中心
             for &(dx, dy) in &block.cells {
-                // 使用实际鼠标位置(pos)来绘制拖动中的方块
-                let rel_dx = dx - min_dx; // 相对于左上角的偏移
-                let rel_dy = dy - min_dy;
-                
-                // 计算每个方块单元的实际位置
-                let x = pos.x + rel_dx as f32 * cell_size;
-                let y = pos.y + rel_dy as f32 * cell_size;
-                
-                // 绘制立体方块
-                drawing::draw_cube_block(x - cell_size/2.0, y - cell_size/2.0, cell_size, block.color);
+                let current_cell_x = pos.x + (dx - min_dx) as f32 * cell_size;
+                let current_cell_y = pos.y + (dy - min_dy) as f32 * cell_size;                
+                drawing::draw_cube_block(current_cell_x - cell_size/2.0, current_cell_y - cell_size/2.0, cell_size, block.color);
             }
         }
     }
@@ -1195,10 +1198,16 @@ fn draw_game(game: &mut Game) {
             }
         },
         GameState::Leaderboard => {
-            // 绘制排行榜界面
-            draw_leaderboard(game);
+            // 排行榜状态下，不需要任何更新逻辑
+            // 按钮处理放在run_game中
         },
-        _ => {}
+        GameState::Playing => { 
+            // Playing state content is drawn before this match statement.
+            // This arm is to make the match exhaustive.
+            // No additional overlays for Playing state here usually.
+        } 
+        // Consider if a catch-all like `_ => {}` was intended if other states might exist
+        // but given the error, `Playing` is the specific one missing.
     }
 }
 
@@ -1369,12 +1378,8 @@ fn update_game(game: &mut Game) {
                         let mut min_dx = i32::MAX;
                         let mut min_dy = i32::MAX;
                         for &(dx, dy) in &block.cells {
-                            if dx < min_dx {
-                                min_dx = dx;
-                            }
-                            if dy < min_dy {
-                                min_dy = dy;
-                            }
+                            if dx < min_dx { min_dx = dx; }
+                            if dy < min_dy { min_dy = dy; }
                         }
                         
                         // 核心改动：应用偏移量使方块位于手指上方
@@ -1443,172 +1448,205 @@ fn update_game(game: &mut Game) {
             if is_mouse_button_released(MouseButton::Left) && game.drag_block_idx.is_some() {
                 if let Some(block_idx) = game.drag_block_idx {
                     if let Some(pos) = game.drag_pos { // pos is the top-left cell's center
-                        let block = &game.current_blocks[block_idx];
-                        
-                        // --- 网格计算 (与 draw_game 一致) ---
-                        let grid_size = screen_width() * 0.9;
-                        let cell_size = grid_size / 8.0;
-                        let grid_offset_x = (screen_width() - grid_size) / 2.0;
-                        
-                        // 修正：使用与其他地方相同的网格偏移计算
-                        let aspect_ratio = screen_width() / screen_height();
-                        let is_wide_screen = aspect_ratio > 0.8;   // 宽屏 (接近正方形)
-                        let is_tall_screen = aspect_ratio < 0.5;   // 高屏 (典型手机竖屏)
-                        
-                        // 使用与其他地方相同的网格偏移计算
-                        let grid_offset_y = if is_tall_screen {
-                            screen_height() * 0.22
-                        } else if is_wide_screen {
-                            screen_height() * 0.12
-                        } else {
-                            screen_height() * 0.15
-                        };
-                        // --- 网格计算结束 ---
-                        
-                        // --- 原始方块位置计算 (与 draw_game 绘制底部方块一致) ---
-                        let is_small_screen = screen_height() < 600.0;
-                        let spacing = if is_small_screen { 20.0 } else { 30.0 };
-                        let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
-                        let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
-                        let min_bottom_height = screen_height() * 0.2;
-                        let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
-                        let blocks_y = bottom_area_top + bottom_area_height / 2.0;
-                        let max_block_size_calc = cell_size * 4.0;
-                        let block_size_calc = if game.blocks_per_generation <= 2 {
-                            max_block_size_calc
-                        } else {
-                            let width_factor = if is_small_screen { 0.80 } else { 0.85 };
-                            (screen_width() * width_factor) / (game.blocks_per_generation as f32 * 1.2)
-                        };
-                        let block_margin_calc = block_size_calc * 0.2;
-                        // 注意：这里需要计算所有可能位置的总宽度，即使某些块已被移除
-                        let total_possible_width = block_size_calc * game.blocks_per_generation as f32 
-                                                 + block_margin_calc * (game.blocks_per_generation as f32 - 1.0);
-                        let start_x_calc = (screen_width() - total_possible_width) / 2.0;
-                        // 计算当前拖动块的原始目标位置中心点 (需要假设它在 current_blocks 中的原始位置)
-                        // TODO: This calculation might be complex if blocks are removed. A better way might be needed.
-                        // Let's assume for now we calculate based on its *current* index if it were present
-                        // Need a reliable way to find original position index if blocks_per_generation changes
-                        // --- Simplified target pos calculation for now --- 
-                        let target_pos_x = start_x_calc + block_size_calc / 2.0 + block_idx as f32 * (block_size_calc + block_margin_calc);
-                        let target_pos_y = blocks_y;
-                        let original_bottom_pos = Vec2::new(target_pos_x, target_pos_y);
-                        // --- 原始方块位置计算结束 ---
-                        
-                        // 找到最左上角的cell (用于计算网格坐标)
-                        let mut min_dx = i32::MAX;
-                        let mut min_dy = i32::MAX;
-                        for &(dx, dy) in &block.cells {
-                            if dx < min_dx { min_dx = dx; }
-                            if dy < min_dy { min_dy = dy; }
-                        }
-                        
-                        // 计算目标网格坐标 (以左上角cell为基准)
-                        let grid_top_left_x = ((pos.x - grid_offset_x) / cell_size).floor();
-                        let grid_top_left_y = ((pos.y - grid_offset_y) / cell_size).floor();
-                        let grid_x = grid_top_left_x as i32 - min_dx;
-                        let grid_y = grid_top_left_y as i32 - min_dy;
-                        
-                        // 检查是否在网格或附近
-                        let is_near_grid = pos.x >= grid_offset_x - cell_size 
-                                         && pos.x <= grid_offset_x + grid_size + cell_size
-                                         && pos.y >= grid_offset_y - cell_size
-                                         && pos.y <= grid_offset_y + grid_size + cell_size;
-                        
-                        let mut placed_successfully = false;
-                        if is_near_grid { // 只在靠近网格时尝试放置
-                            let (can_place, corrected_x, corrected_y) = 
-                                game.grid.can_place_block_with_tolerance(block, grid_x, grid_y, 1);
+                        // Ensure block index is still valid after potential removals
+                        if block_idx < game.current_blocks.len() {
+                            let block = &game.current_blocks[block_idx];
                             
-                            if can_place {
-                                placed_successfully = true;
-                                game.grid.place_block(block, corrected_x, corrected_y);
-                                
-                                // 方块成功放置后触发振动 (仅WASM)
-                                trigger_vibration_on_place(50); // 振动50毫秒
-
-                                if corrected_x != grid_x || corrected_y != grid_y {
-                                    log_info!("位置已自动校正: 从({},{})到({},{})", grid_x, grid_y, corrected_x, corrected_y);
-                                    // TODO: 添加声音或特效提示
-                                }
-                                
-                                // --- 消除和得分逻辑 (保持不变) ---
-                                let mut filled_rows = [false; 8];
-                                let mut filled_cols = [false; 8];
-                                for y in 0..8 { if (0..8).all(|x| game.grid.cells[y][x].is_some()) { filled_rows[y] = true; } }
-                                for x in 0..8 { if (0..8).all(|y| game.grid.cells[y][x].is_some()) { filled_cols[x] = true; } }
-                                
-                                let (rows_cleared, cols_cleared) = game.grid.check_and_clear();
-                                let cleared = rows_cleared + cols_cleared;
-                                
-                                if cleared > 0 {
-                                    // 特效
-                                    for y in 0..8 { if filled_rows[y] { for x in 0..8 { let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0; let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0; game.effects.show_clear_effect(effect_x, effect_y, block.color); } } } // 使用金色
-                                    for x in 0..8 { if filled_cols[x] { for y in 0..8 { if !filled_rows[y] { let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0; let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0; game.effects.show_clear_effect(effect_x, effect_y, block.color); } } } } // 使用金色
-                                    if game.combo >= 2 { let combo_x = screen_width() / 2.0; let combo_y = grid_offset_y + grid_size / 2.0; game.effects.show_combo_effect(game.combo, combo_x, combo_y); }
-                                    
-                                    // 分数和连击
-                                    game.combo += 1;
-                                    // game.score += cleared * 100 * game.combo; // 旧的计分方式
-
-                                    // 新的计分方式：为同时消除多行/列提供额外奖励
-                                    let base_score_for_turn = match cleared {
-                                        0 => 0, // 不应发生，因为 cleared > 0
-                                        1 => 100, // 消除1行/列
-                                        2 => 300, // 消除2行/列
-                                        3 => 500, // 消除3行/列
-                                        4 => 800, // 消除4行/列
-                                        c => 800 + (c - 4) * 300, // 消除5行/列及以上，每多一行/列额外加300
-                                    };
-                                    game.score += base_score_for_turn * game.combo;
-
-                                } else {
-                                    game.combo = 0;
-                                }
-                                // --- 消除和得分逻辑结束 ---
-                                
-                                // 移除已使用的方块
-                                game.current_blocks.remove(block_idx);
-                                
-                                // 如果没有方块了，生成新的
-                                if game.current_blocks.is_empty() {
-                                    game.generate_blocks();
-                                }
-                            }
-                        } // end if is_near_grid
-                        
-                        // 如果放置失败，启动返回动画
-                        if !placed_successfully {
-                            log_info!("放置无效，启动返回动画 for block {}", block_idx);
-                            let start_pos = pos; // 使用松手时的计算位置作为起点
-                            // 获取存储的原始位置，如果不存在则使用重新计算的位置作为后备
-                            let target_pos = game.drag_original_pos.unwrap_or(original_bottom_pos);
-                            let animation_data = AnimatingBlockData {
-                                block_idx,
-                                start_pos,
-                                target_pos: target_pos, // 使用存储的原始位置
-                                current_pos: start_pos, // 初始位置
-                                timer: 0.0,
-                                duration: 0.15, // 动画持续时间 (秒)
+                            // --- 网格计算 (与 draw_game 一致) ---
+                            let grid_size = screen_width() * 0.9;
+                            let cell_size = grid_size / 8.0;
+                            let grid_offset_x = (screen_width() - grid_size) / 2.0;
+                            
+                            // 修正：使用与其他地方相同的网格偏移计算
+                            let aspect_ratio = screen_width() / screen_height();
+                            let is_wide_screen = aspect_ratio > 0.8;   // 宽屏 (接近正方形)
+                            let is_tall_screen = aspect_ratio < 0.5;   // 高屏 (典型手机竖屏)
+                            
+                            // 使用与其他地方相同的网格偏移计算
+                            let grid_offset_y = if is_tall_screen {
+                                screen_height() * 0.22
+                            } else if is_wide_screen {
+                                screen_height() * 0.12
+                            } else {
+                                screen_height() * 0.15
                             };
-                            game.animating_block = Some(animation_data);
-                            // 不移除 game.current_blocks[block_idx]
-                        }
-                    }
+                            // --- 网格计算结束 ---
+                            
+                            // --- 原始方块位置计算 (与 draw_game 绘制底部方块一致) ---
+                            let is_small_screen = screen_height() < 600.0;
+                            let spacing = if is_small_screen { 20.0 } else { 30.0 };
+                            let separator_y = grid_offset_y + grid_size + 15.0 + spacing;
+                            let bottom_area_top = separator_y + (if is_small_screen { 2.0 } else { 5.0 });
+                            let min_bottom_height = screen_height() * 0.2;
+                            let bottom_area_height = (screen_height() - bottom_area_top).max(min_bottom_height);
+                            let blocks_y = bottom_area_top + bottom_area_height / 2.0;
+                            let max_block_size_calc = cell_size * 4.0;
+                            let block_size_calc = if game.wave_manager.blocks_per_generation <= 2 {
+                                max_block_size_calc
+                            } else {
+                                let width_factor = if is_small_screen { 0.80 } else { 0.85 };
+                                (screen_width() * width_factor) / (game.wave_manager.blocks_per_generation as f32 * 1.2)
+                            };
+                            let block_margin_calc = block_size_calc * 0.2;
+                            // 注意：这里需要计算所有可能位置的总宽度，即使某些块已被移除
+                            let total_possible_width = block_size_calc * game.wave_manager.blocks_per_generation as f32 
+                                                     + block_margin_calc * (game.wave_manager.blocks_per_generation as f32 - 1.0);
+                            let start_x_calc = (screen_width() - total_possible_width) / 2.0;
+                            // 计算当前拖动块的原始目标位置中心点 (需要假设它在 current_blocks 中的原始位置)
+                            // TODO: This calculation might be complex if blocks are removed. A better way might be needed.
+                            // Let's assume for now we calculate based on its *current* index if it were present
+                            // Need a reliable way to find original position index if blocks_per_generation changes
+                            // --- Simplified target pos calculation for now --- 
+                            let target_pos_x = start_x_calc + block_size_calc / 2.0 + block_idx as f32 * (block_size_calc + block_margin_calc);
+                            let target_pos_y = blocks_y;
+                            let original_bottom_pos = Vec2::new(target_pos_x, target_pos_y);
+                            // --- 原始方块位置计算结束 ---
+                            
+                            // 找到最左上角的cell (用于计算网格坐标)
+                            let mut min_dx = i32::MAX;
+                            let mut min_dy = i32::MAX;
+                            for &(dx, dy) in &block.cells {
+                                if dx < min_dx { min_dx = dx; }
+                                if dy < min_dy { min_dy = dy; }
+                            }
+                            
+                            // 计算目标网格坐标 (以左上角cell为基准)
+                            let grid_top_left_x = ((pos.x - grid_offset_x) / cell_size).floor();
+                            let grid_top_left_y = ((pos.y - grid_offset_y) / cell_size).floor();
+                            let grid_x = grid_top_left_x as i32 - min_dx;
+                            let grid_y = grid_top_left_y as i32 - min_dy;
+                            
+                            // 检查是否在网格或附近
+                            let is_near_grid = pos.x >= grid_offset_x - cell_size 
+                                             && pos.x <= grid_offset_x + grid_size + cell_size
+                                             && pos.y >= grid_offset_y - cell_size
+                                             && pos.y <= grid_offset_y + grid_size + cell_size;
+                            
+                            let mut placed_successfully = false;
+                            if is_near_grid { // 只在靠近网格时尝试放置
+                                let (can_place, corrected_x, corrected_y) = 
+                                    game.grid.can_place_block_with_tolerance(block, grid_x, grid_y, 1);
+                                
+                                if can_place {
+                                    placed_successfully = true;
+                                    game.grid.place_block(block, corrected_x, corrected_y);
+                                    trigger_vibration_on_place(50);
+                                    
+                                    // --- WaveManager 回合推进和奖励获取 ---
+                                    let score_bonus_from_wave = game.wave_manager.increment_turn();
+                                    if score_bonus_from_wave > 0 {
+                                        game.score += score_bonus_from_wave;
+                                        log_info!("WaveManager bonus: +{} score! Total score: {}", score_bonus_from_wave, game.score);
+                                        // TODO: 可以在此触发奖励特效/音效
+                                    }
+                                    // --- 结束 --- 
+
+                                    if corrected_x != grid_x || corrected_y != grid_y {
+                                        log_info!("位置已自动校正: 从({},{})到({},{})", grid_x, grid_y, corrected_x, corrected_y);
+                                    }
+                                    
+                                    let (cleared_row_indices, cleared_col_indices) = game.grid.check_and_clear();
+                                    let cleared_count = cleared_row_indices.len() + cleared_col_indices.len();
+                                    
+                                    if cleared_count > 0 {
+                                        for &index in &cleared_row_indices {
+                                             game.wave_manager.notify_line_cleared(index, true);
+                                        }
+                                        for &index in &cleared_col_indices {
+                                            game.wave_manager.notify_line_cleared(index, false);
+                                        }
+                                        log_info!("Lines cleared ({}) - Notified WaveManager", cleared_count);
+                                        
+                                        // 特效 - 需要使用索引来精确定位
+                                        let effect_color = Color::new(1.0, 0.843, 0.0, 1.0); // Gold color for clear
+                                        for &y in &cleared_row_indices {
+                                            for x in 0..8 {
+                                                let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0;
+                                                let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0;
+                                                game.effects.show_clear_effect(effect_x, effect_y, effect_color);
+                                            }
+                                        }
+                                        for &x in &cleared_col_indices {
+                                             // Avoid double effects for intersection cells
+                                             for y in 0..8 {
+                                                 // Check if this cell was already part of a cleared row
+                                                 if !cleared_row_indices.contains(&y) {
+                                                    let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0;
+                                                    let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0;
+                                                    game.effects.show_clear_effect(effect_x, effect_y, effect_color);
+                                                 }
+                                             }
+                                        }
+                                        
+                                        if game.combo >= 2 { let combo_x = screen_width() / 2.0; let combo_y = grid_offset_y + grid_size / 2.0; game.effects.show_combo_effect(game.combo, combo_x, combo_y); }
+                                        
+                                        // 分数和连击
+                                        game.combo += 1;
+                                        // 新的计分方式...
+                                        let base_score_for_turn = match cleared_count { // Use count here
+                                            0 => 0, // 不应发生
+                                            1 => 100,
+                                            2 => 300,
+                                            3 => 500,
+                                            4 => 800,
+                                            c => 800 + (c - 4) as u32 * 300, // Ensure calculation is u32
+                                        };
+                                        game.score += base_score_for_turn * game.combo;
+
+                                    } else {
+                                        game.combo = 0;
+                                    }
+                                    // --- 消除和得分逻辑结束 ---
+                                    
+                                    // 移除已使用的方块 - Important: do this *after* using block_idx
+                                    game.current_blocks.remove(block_idx);
+                                    
+                                    // 如果没有方块了，生成新的
+                                    if game.current_blocks.is_empty() {
+                                        game.generate_blocks();
+                                    }
+                                    
+                                    // Check for game over *after* potentially generating new blocks
+                                    // if game.check_game_over() { // Moved game over check lower
+                                    //    game.state = GameState::GameOver;
+                                    // }
+
+                                } // end if can_place
+                            } // end if is_near_grid
+                            
+                            // 如果放置失败，启动返回动画
+                            if !placed_successfully {
+                                // ... (return animation logic) ...
+                                log_info!("Block placement failed or cancelled.");
+                                // Note: Turn is NOT incremented if placement fails
+                            }
+                        } else {
+                             log_warn!("Skipping placement logic because block_idx {} is out of bounds for current_blocks len {}.", block_idx, game.current_blocks.len());
+                        } // end if block_idx < game.current_blocks.len()
+                    } // end if let Some(pos)
                     
                     // 重置拖拽状态 (无论成功与否)
                     game.drag_block_idx = None;
                     game.drag_pos = None;
                     game.drag_original_pos = None; // 清理状态
                     game.initial_mouse_drag_start_pos = None; // 清理拖动起始位置
-                }
-            }
+                } // end if let Some(block_idx)
+            } // end if is_mouse_button_released
             
-            // 检查游戏结束
-            if game.check_game_over() {
+            // --- !!! STEP 1 (Part 2): Handle Obstacle Generation Request !!! --- 
+            // Check this every frame while playing, not just after placement
+            // if let Some(count) = game.wave_manager.check_and_consume_obstacle_request() {
+            //     log_info!("Obstacle generation requested: count = {}", count);
+            //     let empty_cells = game.grid.get_random_empty_cells(count); 
+            //     // ... (rest of old obstacle placement) ...
+            // }
+
+            // 检查游戏结束 - Check AFTER all placement logic and potential block generation
+            if !game.current_blocks.is_empty() && game.check_game_over() {
                 game.state = GameState::GameOver;
+                log_info!("Game Over condition met.");
             }
-        },
+        }, // End GameState::Playing
         GameState::GameOver => {
             if is_mouse_button_pressed(MouseButton::Left) {
                 let width = screen_width();

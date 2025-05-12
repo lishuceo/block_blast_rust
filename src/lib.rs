@@ -19,6 +19,20 @@ pub mod cloud;
 pub mod log;
 pub mod random;
 pub mod drawing;
+pub mod constants;
+pub mod utils;
+pub mod wave;
  
 // 注意：此库仅使用macroquad处理WASM导出 
 // 此版本中不使用wasm-bindgen 
+
+// 移除重复的 GameMode use 和 module
+// pub use game_logic::GameMode;
+// mod game_logic { 
+//     #[derive(Debug, PartialEq, Copy, Clone)]
+//     pub enum GameMode {
+//         Easy,
+//         Normal,
+//         Happy,
+//     }
+// }

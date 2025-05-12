@@ -19,12 +19,10 @@ impl Grid {
             let x = grid_x + dx;
             let y = grid_y + dy;
             
-            // 检查边界
             if x < 0 || x >= 8 || y < 0 || y >= 8 {
                 return false;
             }
             
-            // 检查是否已被占用
             if self.cells[y as usize][x as usize].is_some() {
                 return false;
             }
@@ -34,53 +32,35 @@ impl Grid {
     
     // 检查是否可以放置方块（带容错范围）
     pub fn can_place_block_with_tolerance(&self, block: &BlockShape, grid_x: i32, grid_y: i32, tolerance: i32) -> (bool, i32, i32) {
-        // 首先尝试在原位置放置
         if self.can_place_block(block, grid_x, grid_y) {
             return (true, grid_x, grid_y);
         }
-        
-        // 如果原位置不行，先尝试上下左右四个方向
-        let directions = [(0, -1), (0, 1), (-1, 0), (1, 0)]; // 上、下、左、右
+        let directions = [(0, -1), (0, 1), (-1, 0), (1, 0)];
         for &(dx, dy) in &directions {
             let new_x = grid_x + dx;
             let new_y = grid_y + dy;
-            
-            if self.can_place_block(block, new_x, new_y) {
-                return (true, new_x, new_y);
-            }
+            if self.can_place_block(block, new_x, new_y) { return (true, new_x, new_y); }
         }
-        
-        // 如果上下左右都不行，再尝试对角线方向
-        let diagonals = [(-1, -1), (1, -1), (-1, 1), (1, 1)]; // 左上、右上、左下、右下
+        let diagonals = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
         for &(dx, dy) in &diagonals {
             let new_x = grid_x + dx;
             let new_y = grid_y + dy;
-            
-            if self.can_place_block(block, new_x, new_y) {
-                return (true, new_x, new_y);
-            }
+            if self.can_place_block(block, new_x, new_y) { return (true, new_x, new_y); }
         }
-        
-        // 如果容错范围大于1，尝试更远的位置
         if tolerance > 1 {
-            for dy in -tolerance..=tolerance {
-                for dx in -tolerance..=tolerance {
-                    // 跳过已经检查过的位置（原始位置、上下左右和对角线）
-                    if (dx.abs() <= 1 && dy.abs() <= 1) || (dx == 0 && dy == 0) {
+             for dy_offset in -tolerance..=tolerance {
+                for dx_offset in -tolerance..=tolerance {
+                    if (dx_offset.abs() <= 1 && dy_offset.abs() <= 1) || (dx_offset == 0 && dy_offset == 0) {
                         continue;
                     }
-                    
-                    let new_x = grid_x + dx;
-                    let new_y = grid_y + dy;
-                    
+                    let new_x = grid_x + dx_offset;
+                    let new_y = grid_y + dy_offset;
                     if self.can_place_block(block, new_x, new_y) {
                         return (true, new_x, new_y);
                     }
                 }
             }
         }
-        
-        // 如果所有位置都不行，返回原始位置和失败标志
         (false, grid_x, grid_y)
     }
     
@@ -89,63 +69,104 @@ impl Grid {
         for &(dx, dy) in &block.cells {
             let x = grid_x + dx;
             let y = grid_y + dy;
-            self.cells[y as usize][x as usize] = Some(block.color);
+            if x >= 0 && x < 8 && y >=0 && y < 8 { 
+                 self.cells[y as usize][x as usize] = Some(block.color);
+            }
         }
     }
     
-    // 检查并消除填满的行和列 (修复同时满足行列时的Bug)
-    pub fn check_and_clear(&mut self) -> (u32, u32) {
-        let mut rows_to_clear = [false; 8];
-        let mut cols_to_clear = [false; 8];
+    // 检查并消除填满的行和列，返回清除的行和列的索引
+    pub fn check_and_clear(&mut self) -> (Vec<usize>, Vec<usize>) {
+        let mut rows_to_clear_indices = Vec::new();
+        let mut cols_to_clear_indices = Vec::new();
         
-        // 1. 标记要清除的行
-        for y in 0..8 {
-            if (0..8).all(|x| self.cells[y][x].is_some()) {
-                rows_to_clear[y] = true;
+        // 1. 标记要清除的行索引
+        for y_idx in 0..8 {
+            if (0..8).all(|x_idx| self.cells[y_idx][x_idx].is_some()) { 
+                rows_to_clear_indices.push(y_idx);
             }
         }
         
-        // 2. 标记要清除的列
-        for x in 0..8 {
-            if (0..8).all(|y| self.cells[y][x].is_some()) {
-                cols_to_clear[x] = true;
+        // 2. 标记要清除的列索引
+        for x_idx in 0..8 {
+            if (0..8).all(|y_idx| self.cells[y_idx][x_idx].is_some()) {
+                cols_to_clear_indices.push(x_idx);
             }
         }
 
-        // 3. 计算清除的数量 (在实际清除前计算)
-        let rows_cleared = rows_to_clear.iter().filter(|&&clear| clear).count() as u32;
-        let cols_cleared = cols_to_clear.iter().filter(|&&clear| clear).count() as u32;
-
-        // 如果没有需要清除的，直接返回
-        if rows_cleared == 0 && cols_cleared == 0 {
-            return (0, 0);
+        if rows_to_clear_indices.is_empty() && cols_to_clear_indices.is_empty() {
+            return (Vec::new(), Vec::new());
         }
 
-        // 4. 执行清除
+        let mut should_clear_cell = [[false; 8]; 8];
+        for &y_idx in &rows_to_clear_indices {
+            for x_idx in 0..8 {
+                 should_clear_cell[y_idx][x_idx] = true;
+            }
+        }
+        for &x_idx in &cols_to_clear_indices {
+            for y_idx in 0..8 {
+                should_clear_cell[y_idx][x_idx] = true;
+            }
+        }
+
         for y in 0..8 {
             for x in 0..8 {
-                if rows_to_clear[y] || cols_to_clear[x] {
+                if should_clear_cell[y][x] { 
                     self.cells[y][x] = None;
                 }
             }
         }
         
-        (rows_cleared, cols_cleared)
+        (rows_to_clear_indices, cols_to_clear_indices)
     }
     
     // 绘制网格和方块
-    pub fn draw(&self, offset_x: f32, offset_y: f32, cell_size: f32) {
-        for y in 0..8 {
-            for x in 0..8 {
-                let pos_x = offset_x + x as f32 * cell_size;
-                let pos_y = offset_y + y as f32 * cell_size;
+    pub fn draw_with_highlights(
+        &self, 
+        offset_x: f32, 
+        offset_y: f32, 
+        cell_size: f32, 
+        active_targets: Option<&Vec<usize>>, // 目标行/列的索引
+        is_target_rows: bool                // 如果 active_targets is Some, true 表示目标是行, false 表示列
+    ) {
+        let highlight_color = Color::new(1.0, 1.0, 0.0, 0.3); // 淡黄色半透明高亮
+
+        for y_idx in 0..8 {
+            for x_idx in 0..8 {
+                let pos_x = offset_x + x_idx as f32 * cell_size;
+                let pos_y = offset_y + y_idx as f32 * cell_size;
                 
-                // 绘制网格线 - 改为黑色
+                // 检查是否需要高亮当前单元格
+                let mut should_highlight = false;
+                if let Some(targets) = active_targets {
+                    if is_target_rows {
+                        if targets.contains(&y_idx) {
+                            should_highlight = true;
+                        }
+                    } else { // is_target_cols
+                        if targets.contains(&x_idx) {
+                            should_highlight = true;
+                        }
+                    }
+                }
+
+                // 如果需要高亮，先绘制高亮背景
+                if should_highlight {
+                    draw_rectangle(
+                        pos_x, 
+                        pos_y, 
+                        cell_size, 
+                        cell_size, 
+                        highlight_color
+                    );
+                }
+
+                // 绘制网格线
                 draw_rectangle_lines(pos_x, pos_y, cell_size, cell_size, 1.0, BLACK);
                 
-                // 绘制已放置的方块
-                if let Some(color) = self.cells[y][x] {
-                    // 使用draw_cube_block函数绘制方块（包含3D效果）
+                // 绘制已放置的方块 (恢复为 Option<Color>)
+                if let Some(color) = self.cells[y_idx][x_idx] {
                     crate::drawing::draw_cube_block(pos_x, pos_y, cell_size, color);
                 }
             }

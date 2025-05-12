@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 description: Rules based on the Block Blast Rust project documentation.
 globs: ["src/**/*.rs", "web/**/*.js", "web/**/*.html", "Cargo.toml", "DOCUMENTATION.md"]

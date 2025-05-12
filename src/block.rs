@@ -91,13 +91,14 @@ fn normalize_cells(cells: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
 }
 
 // 定义不同形状的方块
+#[derive(Debug, Clone)] // Added Debug and Clone
 pub struct BlockShape {
     pub cells: Vec<(i32, i32)>,
     pub color: Color,
 }
 
 impl BlockShape {
-    // Selects a shape based on weights from the pool
+    // Selects a shape based on weights from a single pool
     fn select_weighted_shape(pool: &[PoolEntry]) -> &'static [(i32, i32)] {
         let total_weight: u32 = pool.iter().map(|entry| entry.weight).sum();
         if total_weight == 0 {
@@ -116,7 +117,95 @@ impl BlockShape {
         pool.last().map(|entry| entry.shape_ref).unwrap_or(SHAPE_DOT)
     }
 
-    // Generates a block for the given game mode (easy or normal)
+    /// Generates a block using a complexity factor (0.0 to 1.0)
+    /// Higher complexity means higher chance of complex shapes.
+    pub fn generate_with_complexity(complexity: f32) -> Self {
+        // Clamp complexity to [0.0, 1.0]
+        let complexity = complexity.max(0.0).min(1.0);
+
+        // Determine the contribution weight of each pool based on complexity
+        // These weights determine how likely we are to pick from each pool
+        // Example interpolation:
+        let easy_weight = (1.0 - complexity).powi(2); // High weight when complexity is low
+        let normal_weight = 1.0 - (complexity * 2.0 - 1.0).abs(); // Peaks at complexity 0.5
+        let happy_weight = complexity.powi(2); // High weight when complexity is high
+
+        // Calculate total weight across all *relevant* entries
+        let mut weighted_entries: Vec<(&'static [(i32, i32)], f32)> = Vec::new();
+        let mut total_blend_weight = 0.0;
+
+        // Add entries from EASY_POOL, scaled by easy_weight
+        for entry in EASY_POOL {
+            let weight = entry.weight as f32 * easy_weight;
+            if weight > 0.0 {
+                weighted_entries.push((entry.shape_ref, weight));
+                total_blend_weight += weight;
+            }
+        }
+        // Add entries from NORMAL_POOL, scaled by normal_weight
+        for entry in NORMAL_POOL {
+            let weight = entry.weight as f32 * normal_weight;
+            if weight > 0.0 {
+                weighted_entries.push((entry.shape_ref, weight));
+                total_blend_weight += weight;
+            }
+        }
+        // Add entries from HAPPY_POOL, scaled by happy_weight
+        for entry in HAPPY_POOL {
+            let weight = entry.weight as f32 * happy_weight;
+            if weight > 0.0 {
+                weighted_entries.push((entry.shape_ref, weight));
+                total_blend_weight += weight;
+            }
+        }
+        
+        // Select a shape based on the blended weights
+        let base_shape_cells = if total_blend_weight <= 0.0 {
+            SHAPE_DOT // Fallback if weights are zero
+        } else {
+            let mut roll = macroquad::rand::gen_range(0.0, total_blend_weight);
+            let mut selected_shape = SHAPE_DOT; // Default fallback
+            for (shape_ref, weight) in weighted_entries {
+                if roll < weight {
+                    selected_shape = shape_ref;
+                    break;
+                }
+                roll -= weight;
+            }
+            selected_shape
+        };
+
+        // --- Reuse existing rotation and color logic --- 
+        let mut current_cells = base_shape_cells.to_vec(); 
+
+        // Apply random rotation
+        let num_rotations = macroquad::rand::gen_range(0, 4);
+        for _ in 0..num_rotations {
+            current_cells = rotate_90_clockwise(&current_cells);
+        }
+
+        // Normalize coordinates after rotation
+        let final_cells = normalize_cells(current_cells);
+
+        // Select a random color
+        let colors = [
+            Color::from_rgba(235, 177, 67, 255), // EBB143
+            Color::from_rgba(212, 59, 54, 255),  // D43B36
+            Color::from_rgba(68, 96, 223, 255),  // 4460DF
+            Color::from_rgba(141, 94, 208, 255), // 8D5ED0
+            Color::from_rgba(62, 181, 224, 255), // 3EB5E0
+            Color::from_rgba(71, 185, 71, 255),  // 47B947
+            Color::from_rgba(227, 95, 57, 255),  // E35F39
+        ];
+        let color_idx = macroquad::rand::gen_range(0, colors.len() as i32);
+
+        BlockShape {
+            cells: final_cells,
+            color: colors[color_idx as usize],
+        }
+    }
+
+    // Keep generate_for_mode for now, maybe for specific scenarios or testing
     pub fn generate_for_mode(mode: GameMode) -> Self {
         let pool = match mode {
             GameMode::Easy => EASY_POOL,
