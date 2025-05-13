@@ -5,8 +5,9 @@ use crate::GameMode; // 导入 GameMode
 
 // --- Base Shape Definitions ---
 // Using &'static [(i32, i32)] for efficiency
-const SHAPE_DOT: &[(i32, i32)] = &[(0, 0)];
-const SHAPE_H2: &[(i32, i32)] = &[(0, 0), (1, 0)];
+// 公开一些基础形状，以便 grid.rs 可以引用它们进行匹配
+pub const SHAPE_DOT: &[(i32, i32)] = &[(0, 0)];
+pub const SHAPE_H2: &[(i32, i32)] = &[(0, 0), (1, 0)];
 const SHAPE_DG: &[(i32, i32)] = &[(0, 0), (1, 1)]; 
 const SHAPE_H3: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0)];
 const SHAPE_I: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0), (3, 0)];
@@ -73,12 +74,12 @@ const HAPPY_POOL: &[PoolEntry] = &[
 ];
 
 // 内部辅助函数：顺时针旋转90度
-fn rotate_90_clockwise(cells: &[(i32, i32)]) -> Vec<(i32, i32)> {
+pub fn rotate_90_clockwise(cells: &[(i32, i32)]) -> Vec<(i32, i32)> {
     cells.iter().map(|&(x, y)| (y, -x)).collect()
 }
 
 // 内部辅助函数：标准化坐标，将左上角移至(0,0)附近
-fn normalize_cells(cells: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+pub fn normalize_cells(cells: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
     if cells.is_empty() {
         return cells;
     }
@@ -95,6 +96,21 @@ fn normalize_cells(cells: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
 pub struct BlockShape {
     pub cells: Vec<(i32, i32)>,
     pub color: Color,
+}
+
+// 公共函数：获取一个随机的方块颜色
+pub fn get_random_block_color() -> Color {
+    let colors = [
+        Color::from_rgba(235, 177, 67, 255), // EBB143
+        Color::from_rgba(212, 59, 54, 255),  // D43B36
+        Color::from_rgba(68, 96, 223, 255),  // 4460DF
+        Color::from_rgba(141, 94, 208, 255), // 8D5ED0
+        Color::from_rgba(62, 181, 224, 255), // 3EB5E0
+        Color::from_rgba(71, 185, 71, 255),  // 47B947
+        Color::from_rgba(227, 95, 57, 255),  // E35F39
+    ];
+    let color_idx = macroquad::rand::gen_range(0, colors.len() as i32);
+    colors[color_idx as usize]
 }
 
 impl BlockShape {
@@ -115,6 +131,14 @@ impl BlockShape {
         }
         // Should not be reached if total_weight > 0, but as a safeguard:
         pool.last().map(|entry| entry.shape_ref).unwrap_or(SHAPE_DOT)
+    }
+
+    /// Creates a new 1x1 dot block shape.
+    pub fn new_dot() -> Self {
+        BlockShape {
+            cells: SHAPE_DOT.to_vec(), // SHAPE_DOT is already normalized (0,0)
+            color: get_random_block_color(), // 使用新的公共颜色函数
+        }
     }
 
     /// Generates a block using a complexity factor (0.0 to 1.0)
@@ -188,20 +212,9 @@ impl BlockShape {
         let final_cells = normalize_cells(current_cells);
 
         // Select a random color
-        let colors = [
-            Color::from_rgba(235, 177, 67, 255), // EBB143
-            Color::from_rgba(212, 59, 54, 255),  // D43B36
-            Color::from_rgba(68, 96, 223, 255),  // 4460DF
-            Color::from_rgba(141, 94, 208, 255), // 8D5ED0
-            Color::from_rgba(62, 181, 224, 255), // 3EB5E0
-            Color::from_rgba(71, 185, 71, 255),  // 47B947
-            Color::from_rgba(227, 95, 57, 255),  // E35F39
-        ];
-        let color_idx = macroquad::rand::gen_range(0, colors.len() as i32);
-
         BlockShape {
             cells: final_cells,
-            color: colors[color_idx as usize],
+            color: get_random_block_color(), // 使用新的公共颜色函数
         }
     }
 
@@ -226,20 +239,9 @@ impl BlockShape {
         let final_cells = normalize_cells(current_cells);
 
         // Select a random color (same logic as before)
-        let colors = [
-            Color::from_rgba(235, 177, 67, 255), // EBB143
-            Color::from_rgba(212, 59, 54, 255),  // D43B36
-            Color::from_rgba(68, 96, 223, 255),  // 4460DF
-            Color::from_rgba(141, 94, 208, 255), // 8D5ED0
-            Color::from_rgba(62, 181, 224, 255), // 3EB5E0
-            Color::from_rgba(71, 185, 71, 255),  // 47B947
-            Color::from_rgba(227, 95, 57, 255),  // E35F39
-        ];
-        let color_idx = macroquad::rand::gen_range(0, colors.len() as i32);
-
         BlockShape {
             cells: final_cells,
-            color: colors[color_idx as usize],
+            color: get_random_block_color(), // 使用新的公共颜色函数
         }
     }
 } 

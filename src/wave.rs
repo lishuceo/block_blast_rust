@@ -9,7 +9,6 @@ use crate::random; // 确保 random 模块存在并包含 get_rand_range
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum WavePhase {
     Accumulation,       // 积累阶段
-    ChallengeIncoming,  // 挑战预告阶段
     ChallengeActive(ChallengeType), // 挑战进行中 (包含具体挑战类型)
     Relief,             // 缓和阶段
 }
@@ -32,7 +31,6 @@ pub struct WaveManager {
 
     // --- 配置参数 ---
     accumulation_turns: u32,
-    challenge_incoming_turns: u32,
     challenge_active_turns: u32,
     relief_turns: u32,
     
@@ -62,7 +60,6 @@ impl WaveManager {
             turns_in_phase: 0,
 
             accumulation_turns: 15,
-            challenge_incoming_turns: 1,
             challenge_active_turns: 5,
             relief_turns: 3,
 
@@ -97,15 +94,13 @@ impl WaveManager {
     fn update_phase(&mut self) {
         let phase_duration = match self.current_phase {
             WavePhase::Accumulation => self.accumulation_turns,
-            WavePhase::ChallengeIncoming => self.challenge_incoming_turns,
             WavePhase::ChallengeActive(_) => self.challenge_active_turns,
             WavePhase::Relief => self.relief_turns,
         };
 
         if self.turns_in_phase >= phase_duration {
              let next_phase = match self.current_phase {
-                 WavePhase::Accumulation => WavePhase::ChallengeIncoming,
-                 WavePhase::ChallengeIncoming => {
+                 WavePhase::Accumulation => {
                      let next_challenge = self.select_next_challenge();
                      // 在转换前触发挑战开始逻辑
                      self.start_challenge(next_challenge); 
@@ -142,9 +137,6 @@ impl WaveManager {
             WavePhase::Accumulation => {
                 self.block_complexity_factor = base_complexity * 0.5; // 积累阶段复杂度更低
             }
-            WavePhase::ChallengeIncoming => {
-                self.block_complexity_factor = base_complexity;
-            }
             WavePhase::ChallengeActive(challenge_type) => {
                 match challenge_type {
                      ChallengeType::BlockFlood => {
@@ -168,7 +160,7 @@ impl WaveManager {
 
     /// 选择下一个挑战类型
     fn select_next_challenge(&self) -> ChallengeType {
-        let cycle_len = self.accumulation_turns + self.challenge_incoming_turns + self.challenge_active_turns + self.relief_turns;
+        let cycle_len = self.accumulation_turns + self.challenge_active_turns + self.relief_turns;
         if cycle_len == 0 { return ChallengeType::BlockFlood; } 
         // 更新: 现在只有两种类型轮流 (0 和 1)
         let challenge_index = (self.turn_count / cycle_len) % 2; 
@@ -285,6 +277,49 @@ impl WaveManager {
          } else {
               None
          }
+    }
+
+    /// 根据当前阶段和棋盘填充率，决定是否应该提供"有用"的方块
+    pub fn should_offer_helpful_block(&self, grid_filled_ratio: f32) -> bool {
+        let random_chance = random::gen_range_f32(0.0, 1.0);
+
+        match self.current_phase {
+            WavePhase::Relief => {
+                // 缓和阶段，较高概率提供帮助
+                if grid_filled_ratio >= 0.35 {
+                    random_chance < 0.60 // 棋盘较满时，60% 概率
+                } else if grid_filled_ratio >= 0.45 {
+                    random_chance < 0.80 // 棋盘较满时，90% 概率
+                } else if grid_filled_ratio >= 0.80 {
+                    random_chance < 0.95 // 棋盘较满时，90% 概率
+                } else {
+                    false
+                }
+            }
+            WavePhase::Accumulation => {
+                // 积累阶段，根据棋盘填充度调整概率
+                if grid_filled_ratio >= 0.35 {
+                    random_chance < 0.50 // 棋盘较满时，40% 概率
+                } else if grid_filled_ratio >= 0.45 {
+                    random_chance < 0.70 // 棋盘较满时，70% 概率
+                } else if grid_filled_ratio >= 0.60 {
+                    random_chance < 0.85 // 棋盘较满时，90% 概率
+                } else {
+                    false
+                }
+            }
+            WavePhase::ChallengeActive(_) => {
+                // 挑战阶段，通常不提供直接帮助，除非特殊情况
+                // 为了"极限翻盘"的惊喜感，可以给一个非常小的概率、
+                if grid_filled_ratio >= 0.45 {
+                    random_chance < 0.40 // 50% 的微小概率
+                } else if grid_filled_ratio >= 0.70 { // 例如棋盘极度满了
+                    random_chance < 0.65 // 60% 的微小概率
+                } else {
+                    false
+                }
+            }
+        }
     }
 } 
  

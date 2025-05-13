@@ -288,17 +288,64 @@ impl Game {
     fn generate_blocks(&mut self) {
         self.current_blocks.clear();
         
-        // 从 WaveManager 获取当前的生成数量和复杂度
-        let num_blocks = self.wave_manager.blocks_per_generation;
+        let filled_ratio = self.grid.get_filled_ratio();
+        let offer_help = self.wave_manager.should_offer_helpful_block(filled_ratio);
+        let mut helpful_block_generated = false;
+
+        log_info!("filled_ratio: {}, offer_help: {}", filled_ratio, offer_help);
+
+        if offer_help {
+            // 尝试查找可以放置的1格或2格小方块
+            // 目标形状可以是 SHAPE_DOT 和 SHAPE_H2 (水平两格)
+            // 注意：SHAPE_H2经过旋转也可以是垂直两格
+            let candidate_helpful_shapes = self.grid.find_placeable_shapes_for_empty_spots(
+                2, // 最多填充2个格子
+                &[&block::SHAPE_DOT, &block::SHAPE_H2]
+            );
+
+            if !candidate_helpful_shapes.is_empty() {
+                // 从候选列表中随机选择一个
+                let selected_idx = macroquad::rand::gen_range(0, candidate_helpful_shapes.len() as i32) as usize;
+                let helpful_block = candidate_helpful_shapes[selected_idx].clone(); // Clone to own it
+                
+                self.current_blocks.push(helpful_block);
+                helpful_block_generated = true;
+                log_info!("Helpful block generated: {:?}. Candidates found: {}", self.current_blocks.last().unwrap().cells, candidate_helpful_shapes.len());
+            } else {
+                log_info!("Offer help was true, but no placeable DOT or H2 shapes found.");
+            }
+        }
+
+        let num_blocks_to_generate_normally = 
+            if helpful_block_generated {
+                if self.wave_manager.blocks_per_generation > 0 {
+                    self.wave_manager.blocks_per_generation.saturating_sub(1) // 确保不会小于0
+                } else {
+                    0
+                }
+            } else {
+                self.wave_manager.blocks_per_generation
+            };
+
         let complexity = self.wave_manager.block_complexity_factor;
+        if num_blocks_to_generate_normally > 0 {
+            log_info!(
+                "Generating {} normal blocks with complexity {:.2}. Offer help: {}, Helpful generated: {}", 
+                num_blocks_to_generate_normally, complexity, offer_help, helpful_block_generated
+            );
+        }
         
-        log_info!("Generating {} blocks with complexity {:.2}", num_blocks, complexity); // 添加日志
-        
-        for i in 0..num_blocks {
-            // 使用新的 generate_with_complexity 函数
-            log_debug!("Generating block {}/{} using complexity {:.2}", i+1, num_blocks, complexity);
+        for i in 0..num_blocks_to_generate_normally {
+            log_debug!("Generating normal block {}/{} using complexity {:.2}", i + 1, num_blocks_to_generate_normally, complexity);
             let block = block::BlockShape::generate_with_complexity(complexity); 
             self.current_blocks.push(block);
+        }
+
+        if self.current_blocks.is_empty() && self.wave_manager.blocks_per_generation > 0 {
+            log_warn!("Block generation resulted in empty current_blocks (expected >0). Generating a fallback block.");
+            self.current_blocks.push(block::BlockShape::generate_with_complexity(0.5)); 
+        } else if self.current_blocks.is_empty() && self.wave_manager.blocks_per_generation == 0 {
+            log_info!("Block generation resulted in empty current_blocks as per blocks_per_generation = 0 (expected).");
         }
     }
     
@@ -822,7 +869,6 @@ fn draw_game(game: &mut Game) {
     let wave_phase = game.wave_manager.get_current_phase();
     let phase_text = match wave_phase {
         WavePhase::Accumulation => "阶段：积累",
-        WavePhase::ChallengeIncoming => "挑战来袭！",
         WavePhase::ChallengeActive(challenge_type) => match challenge_type {
             ChallengeType::BlockFlood => "挑战：方块潮！",
             ChallengeType::TargetRows(_) => "挑战：消除目标行！",
@@ -2280,13 +2326,9 @@ extern "C" {
 
 // 安全包装函数获取JIT状态
 #[cfg(target_arch = "wasm32")]
-// use std::sync::Mutex; <-- 移除这行重复导入
-// use once_cell::sync::Lazy; // 需要确保导入 once_cell::sync::Lazy 和 std::sync::Mutex
-
-// 定义静态变量来缓存 JIT 状态
-// 注意: 理想情况下，这个静态定义应该在函数外部，位于模块级别。
 static JIT_STATUS_CACHE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
+#[cfg(target_arch = "wasm32")]
 fn get_wasm_jit_status() -> String {
     // 尝试获取缓存锁
     let mut cache_guard = JIT_STATUS_CACHE.lock().unwrap_or_else(|poisoned| {
@@ -2352,5 +2394,7 @@ fn trigger_vibration_on_place(duration_ms: i32) {
 fn trigger_vibration_on_place(_duration_ms: i32) {
     // 非WASM平台无操作
 }
+
+
 
 

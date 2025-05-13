@@ -1,6 +1,6 @@
 // 网格模块，处理方块放置和消除逻辑
 use macroquad::prelude::*;
-use crate::block::BlockShape;
+use crate::block::{self, BlockShape};
 
 pub struct Grid {
     pub cells: [[Option<Color>; 8]; 8],
@@ -171,5 +171,142 @@ impl Grid {
                 }
             }
         }
+    }
+
+    /// 获取接近完成的行和列的索引
+    /// cells_needed_to_complete: 还差多少个格子就完成
+    /// 返回 (差一点就完成的行索引列表, 差一点就完成的列索引列表)
+    pub fn get_almost_complete_lines(&self, cells_needed_to_complete: usize) -> (Vec<usize>, Vec<usize>) {
+        let mut almost_complete_rows = Vec::new();
+        let mut almost_complete_cols = Vec::new();
+
+        // 检查行
+        for r_idx in 0..8 {
+            let mut empty_count = 0;
+            for c_idx in 0..8 {
+                if self.cells[r_idx][c_idx].is_none() {
+                    empty_count += 1;
+                }
+            }
+            if empty_count == cells_needed_to_complete {
+                almost_complete_rows.push(r_idx);
+            }
+        }
+
+        // 检查列
+        for c_idx in 0..8 {
+            let mut empty_count = 0;
+            for r_idx in 0..8 {
+                if self.cells[r_idx][c_idx].is_none() {
+                    empty_count += 1;
+                }
+            }
+            if empty_count == cells_needed_to_complete {
+                almost_complete_cols.push(c_idx);
+            }
+        }
+        (almost_complete_rows, almost_complete_cols)
+    }
+
+    /// 获取网格填充比例 (0.0 到 1.0)
+    pub fn get_filled_ratio(&self) -> f32 {
+        let mut filled_count = 0;
+        for r_idx in 0..8 {
+            for c_idx in 0..8 {
+                if self.cells[r_idx][c_idx].is_some() {
+                    filled_count += 1;
+                }
+            }
+        }
+        filled_count as f32 / 64.0
+    }
+
+    /// 查找可以放置在当前棋盘空格子上的特定小形状。
+    /// max_cells_to_fill: 候选方块的最大格子数 (例如 1 或 2)。
+    /// target_shapes: 一个包含基础形状定义（&'static [(i32, i32)])的切片。
+    pub fn find_placeable_shapes_for_empty_spots(
+        &self,
+        max_cells_to_fill: usize,
+        target_shapes: &[&'static [(i32, i32)]],
+    ) -> Vec<BlockShape> {
+        let mut candidate_blocks = Vec::new();
+        if max_cells_to_fill == 0 || target_shapes.is_empty() {
+            return candidate_blocks;
+        }
+
+        for r in 0..8 {
+            for c in 0..8 {
+                if self.cells[r][c].is_none() { // 找到一个空格子 (棋盘坐标 c, r)
+                    for base_shape_ref in target_shapes {
+                        if base_shape_ref.len() == 0 || base_shape_ref.len() > max_cells_to_fill {
+                            continue; // 跳过不符合格子数要求的原始形状
+                        }
+
+                        let mut current_rotated_cells = base_shape_ref.to_vec();
+                        for _rotation_idx in 0..4 { // 尝试0, 90, 180, 270度旋转
+                            // 标准化当前旋转后的形状，使其左上角尽量靠近 (0,0)
+                            // 这对于 can_place_block 的 grid_x, grid_y 计算很重要
+                            let normalized_cells = block::normalize_cells(current_rotated_cells.clone());
+                            
+                            // 再次检查格子数，因为旋转和标准化理论上不改变格子数，但以防万一
+                            if normalized_cells.is_empty() || normalized_cells.len() > max_cells_to_fill {
+                                current_rotated_cells = block::rotate_90_clockwise(&normalized_cells);
+                                continue;
+                            }
+
+                            // 尝试将这个形状的每个格子对齐到当前棋盘空位 (c, r)
+                            // 并计算出对应的 block 的基准放置点 (grid_x, grid_y)
+                            for &(anchor_dx, anchor_dy) in &normalized_cells {
+                                let place_grid_x = c as i32 - anchor_dx;
+                                let place_grid_y = r as i32 - anchor_dy;
+
+                                // 构建一个临时的 BlockShape 用于检查
+                                let temp_block_to_check = BlockShape {
+                                    cells: normalized_cells.clone(),
+                                    color: Color::new(0.0,0.0,0.0,0.0), // 颜色在此时不重要
+                                };
+
+                                if self.can_place_block(&temp_block_to_check, place_grid_x, place_grid_y) {
+                                    // 如果可以放置，我们找到了一个候选。
+                                    candidate_blocks.push(BlockShape {
+                                        cells: normalized_cells.clone(),
+                                        color: block::get_random_block_color(),
+                                    });
+                                    // 找到一种放置方式后，可以不用再试这个形状的其他锚点了（针对当前空位）
+                                    // 但一个形状的不同旋转仍然需要尝试
+                                    break; 
+                                }
+                            }
+                            // 准备下一次旋转
+                            current_rotated_cells = block::rotate_90_clockwise(&normalized_cells);
+                            // 如果旋转一周后回到原点（或变成空），则停止
+                            if block::normalize_cells(current_rotated_cells.clone()) == block::normalize_cells(base_shape_ref.to_vec()) && _rotation_idx > 0 {
+                                if base_shape_ref.len() > 1 { // 对于非单点方块，旋转一圈后通常不同，除非高度对称
+                                     // 对于SHAPE_O这种高度对称的，可能提早结束，这是OK的
+                                }
+                            }
+                            if current_rotated_cells.is_empty() && !base_shape_ref.is_empty() {
+                                break; // 防止空形状无限旋转
+                            }
+                        } // 结束旋转循环
+                    } // 结束目标形状循环
+                } // 结束 if cell is none
+            } // 结束列循环
+        } // 结束行循环
+
+        // 去重：基于形状的 cell 坐标列表进行去重
+        if !candidate_blocks.is_empty() {
+            candidate_blocks.sort_unstable_by_key(|b| {
+                let mut key_vec = b.cells.clone();
+                key_vec.sort_unstable(); // 确保内部排序一致性以进行比较
+                key_vec
+            });
+            candidate_blocks.dedup_by_key(|b| {
+                let mut key_vec = b.cells.clone();
+                key_vec.sort_unstable();
+                key_vec
+            });
+        }
+        candidate_blocks
     }
 } 
