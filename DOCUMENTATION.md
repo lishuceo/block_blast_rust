@@ -26,6 +26,7 @@ block_blast_rust/
 │   ├── lib.rs              # 库入口，导出所有模块
 │   ├── block.rs            # 方块形状定义和生成逻辑
 │   ├── grid.rs             # 游戏网格和放置逻辑
+│   ├── wave.rs             # 新增：动态波次和难度管理器
 │   ├── save.rs             # 游戏存档和加载
 │   ├── effects.rs          # 粒子效果和视觉特效
 │   ├── cloud.rs            # 云服务和排行榜实现
@@ -37,7 +38,7 @@ block_blast_rust/
 │   └── fonts/              # 字体文件
 ├── web/                    # WebAssembly 构建目录
 │   └── node_modules/       # 前端依赖库
-│       └── sce-game-sdk/   # SCE游戏SDK
+│       └── sce-game_sdk/   # SCE游戏SDK
 ├── Cargo.toml              # 项目依赖配置
 ├── Cargo.lock              # 依赖锁定文件
 ├── build.rs                # 构建脚本，生成构建时间信息
@@ -61,11 +62,12 @@ block_blast_rust/
    - `Game` 结构体保存游戏核心数据
    - 管理游戏网格、当前可用方块、分数等
    - 包含UI动画相关变量（旋转、弹跳等）
+   - **新增**: 包含 `WaveManager` 实例，用于动态关卡管理。
 
 3. **界面渲染函数**:
    - `draw_main_menu` 函数负责渲染主菜单界面
    - `draw_menu` 函数负责渲染传统菜单界面
-   - `draw_game` 函数负责渲染游戏界面
+   - `draw_game` 函数负责渲染游戏界面 (会在右上角显示当前波次阶段)
    - `draw_game_over` 函数负责渲染游戏结束界面
    - `draw_leaderboard` 函数负责渲染排行榜界面
 
@@ -73,12 +75,23 @@ block_blast_rust/
    - `update_game` 函数处理游戏逻辑更新
    - `update_main_menu_animations` 处理主菜单动画更新
    - 处理用户输入、方块移动、消除检测等
+   - **新增**: 在成功放置方块后，调用 `wave_manager.increment_turn()` 推进回合，并处理来自 `WaveManager` 的奖励分数。
+   - **新增**: 行/列消除后，调用 `wave_manager.notify_line_cleared()`。
 
-5. **中文文本支持**:
+5. **方块生成 (`Game::generate_blocks`)**:
+   - **动态生成**: 现在从 `wave_manager` 获取方块生成的数量 (固定为3) 和当前的方块复杂度因子 (`block_complexity_factor`)。
+   - **情景感知生成 (初步)**:
+     - 在生成方块前，会获取当前棋盘的填充率。
+     - 调用 `wave_manager.should_offer_helpful_block()` 判断是否应该提供"帮助性"方块。
+     - 如果需要帮助，则调用 `grid.find_placeable_shapes_for_empty_spots()` (目标是1格或2格的 `SHAPE_DOT` 或 `SHAPE_H2` 及其旋转)，尝试找到可以放置在当前棋盘空位上的小方块。
+     - 如果找到候选的"有用方块"，会随机选择一个加入到待选列表中，替换掉一个普通生成的方块。
+     - 其余方块通过 `block::BlockShape::generate_with_complexity()` 结合当前的复杂度因子生成。
+
+6. **中文文本支持**:
    - 实现了 `draw_chinese_text` 函数支持中文显示
    - 使用嵌入式字体资源
 
-6. **3D 效果渲染**:
+7. **3D 效果渲染**:
    - `draw_cube_block` 函数实现立体感方块绘制
 
 ### drawing.rs
@@ -139,14 +152,18 @@ block_blast_rust/
    }
    ```
 
-2. **方块类型**:
-   - 简单形状 (1-2 个方块)
-   - 标准形状 (类俄罗斯方块形状)
-   - 复杂形状 (更多单元格或不规则形状)
+2. **方块类型与常量**:
+   - 简单形状 (1-2 个方块)，标准形状 (类俄罗斯方块形状)，复杂形状。
+   - **新增**: `pub const SHAPE_DOT: &[(i32, i32)]` 和 `pub const SHAPE_H2: &[(i32, i32)]` 被设为公共常量，方便其他模块引用。
 
 3. **方块生成**:
-   - `random` 方法随机生成方块
-   - `random_with_chances` 根据概率生成不同复杂度的方块
+   - `generate_with_complexity(complexity: f32)`: 根据复杂度因子混合不同的方块池 (EASY, NORMAL, HAPPY) 来决定生成的方块形状。复杂度因子越高，选中更复杂形状的概率越大。
+   - **新增**: `pub fn new_dot() -> Self`: 直接创建一个1x1的点状方块。
+   - **新增**: `pub fn get_random_block_color() -> Color`: 提供一个公共方法用于获取随机的方块颜色。
+
+4. **辅助函数**:
+   - **新增**: `pub fn rotate_90_clockwise(cells: &[(i32, i32)]) -> Vec<(i32, i32)>`: 将方块顺时针旋转90度，现在是公共函数。
+   - **新增**: `pub fn normalize_cells(cells: Vec<(i32, i32)>) -> Vec<(i32, i32)>`: 标准化方块坐标，使其左上角尽量靠近(0,0)，现在是公共函数。
 
 ### grid.rs
 
@@ -160,13 +177,49 @@ block_blast_rust/
    ```
 
 2. **网格操作**:
-   - `can_place_block` 检查方块是否可放置
-   - `place_block` 在网格上放置方块
-   - `check_and_clear` 检查并消除已填满的行和列
-   - `draw` 渲染网格和已放置的方块
+   - `can_place_block` 检查方块是否可放置。
+   - `place_block` 在网格上放置方块。
+   - `check_and_clear` 检查并消除已填满的行和列，**返回被清除的行和列的索引 `(Vec<usize>, Vec<usize>)`**。
+   - `draw_with_highlights` 渲染网格和已放置的方块，并能高亮显示由 `WaveManager` 指定的目标行/列。
 
 3. **辅助功能**:
-   - `can_place_block_with_tolerance` 提供放置容错，改善用户体验
+   - `can_place_block_with_tolerance` 提供放置容错，改善用户体验。
+   - **新增**: `pub fn get_almost_complete_lines(&self, cells_needed_to_complete: usize) -> (Vec<usize>, Vec<usize>)`:
+     - 分析棋盘，返回一个元组，分别包含所有只差 `cells_needed_to_complete` 个格子即满的行和列的索引。
+   - **新增**: `pub fn get_filled_ratio(&self) -> f32`:
+     - 计算当前网格中已填充格子占总格子数的比例 (0.0 到 1.0)。
+   - **新增**: `pub fn find_placeable_shapes_for_empty_spots(&self, max_cells_to_fill: usize, target_shapes: &[&'static [(i32, i32)]]) -> Vec<BlockShape>`:
+     - 尝试将 `target_shapes` (例如1格或2格的小方块) 的所有旋转形式放置到棋盘上的所有空位。
+     - 返回一个 `Vec<BlockShape>` 列表，包含所有成功找到的、格子数不超过 `max_cells_to_fill` 且可以放置的方块实例（已赋予随机颜色）。用于"情景感知方块生成"。
+
+### wave.rs (动态波次与难度管理器)
+
+新增的 `WaveManager` 模块负责管理游戏的动态节奏、难度调整和周期性挑战，以取代原有的固定难度模式。
+
+1.  **核心概念**:
+    *   **回合 (`turn_count`)**: 玩家每成功放置一个方块计为一个回合。
+    *   **波次阶段 (`WavePhase`)**: 游戏在 `Accumulation` (积累)、`ChallengeActive` (挑战激活)、`Relief` (缓和) 三个主要阶段间周期性切换。原有的 `ChallengeIncoming` (挑战预告) 阶段已被移除以使节奏更紧凑。
+    *   **方块复杂度因子 (`block_complexity_factor`)**: 一个动态调整的浮点数，影响生成方块的复杂程度。会根据总回合数和当前波次阶段进行调整。
+    *   **挑战类型 (`ChallengeType`)**: 目前实现了 `BlockFlood` (方块潮，提高复杂度)、`TargetRows` (目标行)、`TargetCols` (目标列)。
+
+2.  **主要功能**:
+    *   `new()`: 初始化 `WaveManager`，设置各阶段的默认持续回合数、初始复杂度等。
+    *   `increment_turn() -> u32`: 推进游戏回合，更新当前阶段，调整难度，并返回该回合可能产生的奖励分数。
+    *   `update_phase()`: 根据当前阶段已持续的回合数和配置的阶段长度，自动切换到下一个阶段。
+    *   `transition_to()`: 处理阶段切换时的状态重置。
+    *   `update_difficulty()`: 根据当前所处阶段和总回合数，调整 `block_complexity_factor`。
+    *   `select_next_challenge()`: 为接下来的 `ChallengeActive` 阶段选择一个挑战类型。
+    *   `start_challenge()` / `end_challenge()`: 处理挑战开始和结束时的逻辑，包括目标设置和奖励计算。
+    *   `notify_line_cleared()`: 在行或列被消除时调用，用于更新目标挑战的完成进度和计算相关奖励。
+    *   **新增**: `pub fn should_offer_helpful_block(&self, grid_filled_ratio: f32) -> bool`:
+        - 根据当前波次阶段和棋盘的填充比例 (`grid_filled_ratio`)，以一定的概率决定是否应该为玩家提供"帮助性"的小方块。在"缓和"阶段或"积累"阶段棋盘较满时，提供帮助的概率会更高。
+
+3.  **与游戏主循环的集成 (`main.rs`)**:
+    *   `Game` 结构体包含一个 `WaveManager` 实例。
+    *   在 `Game::update_game()` 中，成功放置方块后调用 `wave_manager.increment_turn()`。
+    *   `Game::generate_blocks()` 会从 `wave_manager` 获取当前的 `blocks_per_generation` (固定为3) 和 `block_complexity_factor`，并调用 `wave_manager.should_offer_helpful_block()` 来辅助决定是否生成"有用方块"。
+    *   消除行/列后，会调用 `wave_manager.notify_line_cleared()`。
+    *   游戏界面会显示当前的 `WavePhase`。
 
 ### effects.rs
 
@@ -469,14 +522,14 @@ SCE SDK (星火对战平台SDK) 是一个用于在星火对战平台中开发小
    - 同时消除越多，得分越高
 
 2. **难度系统**:
-   - 简单模式：增加简单方块的生成概率
-   - 普通模式：标准方块概率更高
-   - 可调整方块数量和生成概率
+   - **动态关卡系统 (`WaveManager`)**: 取代旧的固定模式，通过回合数驱动的波次阶段（积累、挑战、缓和）和动态调整的方块复杂度因子来控制游戏节奏和难度。
+   - **情景感知方块生成**: 在特定阶段（如缓和阶段或积累阶段棋盘较满时），系统会尝试生成能帮助玩家解围的小型方块（如1x1或1x2）。
 
 3. **分数系统**:
    - 基础分数：每次消除的行列数
    - 连击加成：连续消除增加连击数和分数
-   - 最高分记录
+   - 最高分记录 (与云端集成)
+   - **波次奖励**: 完成特定挑战或在某些阶段可能会有额外的分数奖励。
 
 4. **视觉反馈**:
    - 方块拖放动画
@@ -495,8 +548,8 @@ SCE SDK (星火对战平台SDK) 是一个用于在星火对战平台中开发小
 
 3. **游戏模式扩展**:
    - 添加计时模式
-   - 添加挑战模式
-   - 关卡系统
+   - 进一步丰富挑战模式中的挑战类型
+   - 考虑引入更复杂的关卡目标或机制
 
 4. **多语言支持**:
    - 当前已支持中文
@@ -505,6 +558,10 @@ SCE SDK (星火对战平台SDK) 是一个用于在星火对战平台中开发小
 5. **移动端优化**:
    - 进一步优化触摸控制
    - 添加手机适配的 UI 布局
+
+6. **情景感知方块生成增强**:
+    - 对整组生成的方块进行可放置性检查，避免死局。
+    - 扩展"有用方块"的种类和匹配逻辑。
 
 ## 开发指南
 

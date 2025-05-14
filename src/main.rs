@@ -1,9 +1,12 @@
 use macroquad::prelude::*;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use cloud::PlayerRank;
-use block_blast::GameMode; // 使用库名导入
-use block_blast::wave::{WaveManager, WavePhase, ChallengeType}; // 新的导入，使用 crate 名
+use block_blast::GameMode; 
+use block_blast::wave::{WaveManager, WavePhase, ChallengeType}; 
+
+// 确保以下导入存在
+use macroquad::rand as mq_rand; 
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::constants::{COLOR_PRIMARY, COLOR_PRIMARY_DARK, COLOR_PRIMARY_OVERLAY, COLOR_BORDER, COLOR_TITLE};
 
@@ -292,27 +295,34 @@ impl Game {
         let offer_help = self.wave_manager.should_offer_helpful_block(filled_ratio);
         let mut helpful_block_generated = false;
 
-        log_info!("filled_ratio: {}, offer_help: {}", filled_ratio, offer_help);
+        log_info!("generate_blocks: filled_ratio: {}, offer_help: {}", filled_ratio, offer_help);
 
         if offer_help {
-            // 尝试查找可以放置的1格或2格小方块
-            // 目标形状可以是 SHAPE_DOT 和 SHAPE_H2 (水平两格)
-            // 注意：SHAPE_H2经过旋转也可以是垂直两格
+            // 尝试查找可以放置的1至5格的小方块
             let candidate_helpful_shapes = self.grid.find_placeable_shapes_for_empty_spots(
-                2, // 最多填充2个格子
-                &[&block::SHAPE_DOT, &block::SHAPE_H2]
+                5, // 最多填充5个格子
+                &[
+                    &block::SHAPE_DOT, 
+                    &block::SHAPE_H2, 
+                    &block::SHAPE_H3,
+                    &block::SHAPE_O,
+                    &block::SHAPE_L,
+                    &block::SHAPE_T,
+                    &block::SHAPE_I, // 4格直线
+                    // 可以考虑未来加入 SHAPE_Z 等更复杂的形状，但要注意它们可能更难精确匹配空位
+                ]
             );
 
             if !candidate_helpful_shapes.is_empty() {
                 // 从候选列表中随机选择一个
                 let selected_idx = macroquad::rand::gen_range(0, candidate_helpful_shapes.len() as i32) as usize;
-                let helpful_block = candidate_helpful_shapes[selected_idx].clone(); // Clone to own it
+                let helpful_block = candidate_helpful_shapes[selected_idx].clone(); 
                 
                 self.current_blocks.push(helpful_block);
                 helpful_block_generated = true;
                 log_info!("Helpful block generated: {:?}. Candidates found: {}", self.current_blocks.last().unwrap().cells, candidate_helpful_shapes.len());
             } else {
-                log_info!("Offer help was true, but no placeable DOT or H2 shapes found.");
+                log_info!("Offer help was true, but no placeable helpful shapes found with max_cells=5.");
             }
         }
 
@@ -1743,6 +1753,20 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    // 使用当前时间戳作为随机数种子
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|e| {
+            // 如果时间在 UNIX EPOCH 之前（不太可能，但作为健壮性处理）
+            // 或者 unwrap_or_else 用于其他潜在错误
+            log_warn!("SystemTime before UNIX EPOCH or other error! Using default seed. Error: {}", e);
+            std::time::Duration::from_secs(0) // 回退到0，或某个固定值
+        })
+        .as_nanos() as u64; // 使用纳秒部分增加随机性
+
+    mq_rand::srand(seed);
+    log_info!("Random seed initialized with: {}", seed);
+
     // 显示设备信息和DPI缩放
     let _dpi_scale = get_dpi_scale();
     log_info!("设备信息: 屏幕大小 {}x{}, DPI缩放: {}", screen_width(), screen_height(), _dpi_scale);

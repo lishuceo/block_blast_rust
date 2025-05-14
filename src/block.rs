@@ -9,11 +9,11 @@ use crate::GameMode; // 导入 GameMode
 pub const SHAPE_DOT: &[(i32, i32)] = &[(0, 0)];
 pub const SHAPE_H2: &[(i32, i32)] = &[(0, 0), (1, 0)];
 const SHAPE_DG: &[(i32, i32)] = &[(0, 0), (1, 1)]; 
-const SHAPE_H3: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0)];
-const SHAPE_I: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0), (3, 0)];
-const SHAPE_O: &[(i32, i32)] = &[(0, 0), (1, 0), (0, 1), (1, 1)];
-const SHAPE_L: &[(i32, i32)] = &[(0, 0), (0, 1), (0, 2), (1, 2)]; // Base L
-const SHAPE_T: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0), (1, 1)];
+pub const SHAPE_H3: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0)];
+pub const SHAPE_I: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0), (3, 0)];
+pub const SHAPE_O: &[(i32, i32)] = &[(0, 0), (1, 0), (0, 1), (1, 1)];
+pub const SHAPE_L: &[(i32, i32)] = &[(0, 0), (0, 1), (0, 2), (1, 2)]; // Base L
+pub const SHAPE_T: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0), (1, 1)];
 const SHAPE_Z: &[(i32, i32)] = &[(0, 0), (1, 0), (1, 1), (2, 1)]; // Base Z
 const SHAPE_CROSS: &[(i32, i32)] = &[(1, 0), (0, 1), (1, 1), (2, 1), (1, 2)];
 const SHAPE_RECT_2X3: &[(i32, i32)] = &[(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)];

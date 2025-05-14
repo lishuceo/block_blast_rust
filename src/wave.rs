@@ -282,15 +282,16 @@ impl WaveManager {
     /// 根据当前阶段和棋盘填充率，决定是否应该提供"有用"的方块
     pub fn should_offer_helpful_block(&self, grid_filled_ratio: f32) -> bool {
         let random_chance = random::gen_range_f32(0.0, 1.0);
+        log_info!("should_offer_helpful_block: filled_ratio: {}, random_chance: {}, phase: {:?}", grid_filled_ratio, random_chance, self.current_phase);
 
         match self.current_phase {
             WavePhase::Relief => {
                 // 缓和阶段，较高概率提供帮助
-                if grid_filled_ratio >= 0.35 {
+                if grid_filled_ratio >= 0.30 {
                     random_chance < 0.60 // 棋盘较满时，60% 概率
-                } else if grid_filled_ratio >= 0.45 {
+                } else if grid_filled_ratio >= 0.40 {
                     random_chance < 0.80 // 棋盘较满时，90% 概率
-                } else if grid_filled_ratio >= 0.80 {
+                } else if grid_filled_ratio >= 0.50 {
                     random_chance < 0.95 // 棋盘较满时，90% 概率
                 } else {
                     false
@@ -298,11 +299,11 @@ impl WaveManager {
             }
             WavePhase::Accumulation => {
                 // 积累阶段，根据棋盘填充度调整概率
-                if grid_filled_ratio >= 0.35 {
+                if grid_filled_ratio >= 0.30 {
                     random_chance < 0.50 // 棋盘较满时，40% 概率
-                } else if grid_filled_ratio >= 0.45 {
+                } else if grid_filled_ratio >= 0.40 {
                     random_chance < 0.70 // 棋盘较满时，70% 概率
-                } else if grid_filled_ratio >= 0.60 {
+                } else if grid_filled_ratio >= 0.50 {
                     random_chance < 0.85 // 棋盘较满时，90% 概率
                 } else {
                     false
@@ -312,9 +313,9 @@ impl WaveManager {
                 // 挑战阶段，通常不提供直接帮助，除非特殊情况
                 // 为了"极限翻盘"的惊喜感，可以给一个非常小的概率、
                 if grid_filled_ratio >= 0.45 {
-                    random_chance < 0.40 // 50% 的微小概率
-                } else if grid_filled_ratio >= 0.70 { // 例如棋盘极度满了
-                    random_chance < 0.65 // 60% 的微小概率
+                    random_chance < 0.60 // 50% 的微小概率
+                } else if grid_filled_ratio >= 0.60 { // 例如棋盘极度满了
+                    random_chance < 0.85 // 60% 的微小概率
                 } else {
                     false
                 }
