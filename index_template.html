@@ -106,7 +106,7 @@
     <!-- <script src="canvas_fixer.js"></script> -->
     
     <!-- 添加SCE SDK (需要先加载) -->
-    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.1.1/dist/sce.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sce-game-sdk@1.1.7/dist/sce.min.js"></script>
 </head>
 
 <body>
@@ -130,7 +130,7 @@
     <!-- 添加JavaScript桥接代码（放在mq_js_bundle.js之后） -->
     <script src="js_bridge.js"></script>
     <!-- 添加测试脚本 -->
-    <script src="test_messages.js"></script>
+    <!-- <script src="test_messages.js"></script> -->
     
     <!-- 内联脚本也移到最后 -->
     <script>
@@ -161,25 +161,69 @@
             }
         };
         
-        // 登录辅助函数
-        window.sce_login = async function() {
+        // 登录辅助函数 - 此函数将被删除
+        // window.sce_login = async function() {
+        //     try {
+        //         const loginRes = await SceSDK.login();
+        //         if (loginRes.result) {
+        //             console.log('登录成功');
+        //             const userInfo = SceSDK.get_user_info();
+        //             return JSON.stringify({
+        //                 success: true,
+        //                 user_id: userInfo.user_id,
+        //                 name: userInfo.name
+        //             });
+        //         } else {
+        //             console.error(`登录失败: ${loginRes.error}`);
+        //             return JSON.stringify({success: false, message: loginRes.error });
+        //         }
+        //     } catch (error) {
+        //         console.error("SCE SDK登录失败:", error);
+        //         return JSON.stringify({success: false, message: error.toString()});
+        //     }
+        // };
+
+        // 新增：为Rust桥接获取用户信息的函数
+        window.sce_get_user_info_for_rust = async function() {
             try {
-                const loginRes = await SceSDK.login();
-                if (loginRes.result) {
-                    console.log('登录成功');
-                    const userInfo = SceSDK.get_user_info();
+                const response = await SceSDK.get_user_info(); 
+                // 检查 response.result 是否存在并且包含有效数据 (user_id)
+                if (response && response.result && response.result.user_id) {
+                    console.log("sce_get_user_info_for_rust 成功:", response.result);
                     return JSON.stringify({
                         success: true,
-                        user_id: userInfo.user_id,
-                        name: userInfo.name
+                        user_id: response.result.user_id,
+                        name: response.result.name,
+                        message: null
+                    });
+                } else if (response && response.error) {
+                    // 如果 response 中显式包含 error 字段
+                    console.error("SceSDK.get_user_info() 返回错误:", response.error);
+                    return JSON.stringify({
+                        success: false,
+                        user_id: null,
+                        name: null,
+                        message: response.error.toString()
                     });
                 } else {
-                    console.error(`登录失败: ${loginRes.error}`);
-                    return JSON.stringify({success: false, message: loginRes.error });
+                    // 其他未预期的成功返回结构或隐式错误（例如 response 为 null/undefined）
+                    console.error("SceSDK.get_user_info() 返回无效或意外结构的数据:", response);
+                    return JSON.stringify({
+                        success: false,
+                        user_id: null,
+                        name: null,
+                        message: "SceSDK.get_user_info() returned invalid or unexpected data structure"
+                    });
                 }
             } catch (error) {
-                console.error("SCE SDK登录失败:", error);
-                return JSON.stringify({success: false, message: error.toString()});
+                // 捕获 await SceSDK.get_user_info() 可能抛出的同步或异步错误
+                console.error("Error in sce_get_user_info_for_rust (catch block):", error);
+                return JSON.stringify({
+                    success: false,
+                    user_id: null,
+                    name: null,
+                    message: error.toString()
+                });
             }
         };
         

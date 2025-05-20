@@ -446,7 +446,7 @@ SCE SDK (星火对战平台SDK) 是一个用于在星火对战平台中开发小
 
 1. **前端集成**:
    - 在 `index_template.html` 中引入 SCE SDK
-   - 创建 JavaScript 桥接函数，提供 Rust 代码调用的接口
+   - 创建 JavaScript 桥接函数，提供 Rust 代码调用的接口 (`sce_init_sdk`, `sce_get_user_info_for_rust`, `sce_upload_score`, `sce_get_leaderboard`, `sce_get_user_rank`)
    - 配置 SDK 参数和初始化设置
 
 2. **后端集成**:
@@ -464,9 +464,12 @@ SCE SDK (星火对战平台SDK) 是一个用于在星火对战平台中开发小
 
 2. **用户登录**:
    ```rust
-   pub async fn login() -> Result<(), String>
+   // pub async fn login() -> Result<(), String> // 旧函数，实际行为已变更
+   // 在SDK初始化成功后，将通过内部调用 window.sce_get_user_info_for_rust() 获取用户信息
+   // Rust 端的 CloudState 将直接包含用户信息，不再有显式的 login 函数供外部调用。
+   // 内部初始化流程会调用 JS 函数 sce_get_user_info_for_rust 获取用户ID和名称。
    ```
-   调用 JavaScript 函数 `sce_login` 进行用户登录，获取用户ID和名称。
+   在 SDK 初始化 (`initialize_sdk`) 成功后，系统会自动尝试获取用户信息。
 
 3. **上传分数**:
    ```rust

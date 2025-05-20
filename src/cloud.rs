@@ -177,13 +177,13 @@ pub async fn init_cloud_service() -> CloudState {
             Ok(json) => {
                 if let Some(success) = json.get("success").and_then(|v| v.as_bool()) {
                     if success {
-                        log_info!("SDK 初始化成功，尝试异步登录...");
+                        log_info!("SDK 初始化成功，尝试异步获取用户信息...");
                         
-                        // 3. 启动异步登录调用 (login 是异步的)
-                        let login_js = r#"window.sce_login();"#;
-                        if let Err(e) = start_async_js_call(login_js) {
-                             log_error!("启动登录失败: {}", e);
-                             // 即使登录启动失败，也认为初始化基本完成，使用访客身份
+                        // 3. 启动异步获取用户信息调用
+                        let get_user_info_js = r#"window.sce_get_user_info_for_rust();"#;
+                        if let Err(e) = start_async_js_call(get_user_info_js) {
+                             log_error!("启动获取用户信息失败: {}", e);
+                             // 即使获取用户信息启动失败，也认为初始化基本完成，使用访客身份
                              return CloudState::Initialized {
                                 user_name: format!("访客_{}", rand::gen_range(100, 999)),
                                 user_id: format!("guest_{}", rand::gen_range(10000, 99999)),
@@ -192,29 +192,29 @@ pub async fn init_cloud_service() -> CloudState {
                              };
                         }
 
-                        // 4. 轮询等待登录结果
-                        let login_result_str = loop {
+                        // 4. 轮询等待获取用户信息结果
+                        let user_info_result_str = loop {
                             let result = get_js_result();
                             if result.is_empty() {
                                 next_frame().await;
                                 continue;
                             } else {
-                                log_info!("登录结果 (轮询): {}", result);
+                                log_info!("获取用户信息结果 (轮询): {}", result);
                                 break result;
                             }
                         };
 
-                        // 5. 解析登录结果
-                        match serde_json::from_str::<serde_json::Value>(&login_result_str) {
-                            Ok(login_json) => {
-                                if let Some(login_success) = login_json.get("success").and_then(|v| v.as_bool()) {
-                                    if login_success {
-                                        log_info!("登录成功");
-                                        let user_id = login_json.get("user_id")
+                        // 5. 解析获取用户信息结果
+                        match serde_json::from_str::<serde_json::Value>(&user_info_result_str) {
+                            Ok(user_info_json) => {
+                                if let Some(user_info_success) = user_info_json.get("success").and_then(|v| v.as_bool()) {
+                                    if user_info_success {
+                                        log_info!("获取用户信息成功");
+                                        let user_id = user_info_json.get("user_id")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or(&format!("user_{}", rand::gen_range(10000, 99999)))
                                             .to_string();
-                                        let user_name = login_json.get("name")
+                                        let user_name = user_info_json.get("name")
                                             .and_then(|v| v.as_str())
                                             .unwrap_or(&format!("Player_{}", rand::gen_range(100, 999)))
                                             .to_string();
@@ -223,15 +223,15 @@ pub async fn init_cloud_service() -> CloudState {
                                         };
                                     }
                                 }
-                                // 登录API调用成功但业务逻辑失败 (e.g., 用户取消)
-                                log_error!("登录未成功完成 (可能用户取消或 API 内部错误): {}", login_result_str);
+                                // 获取用户信息API调用成功但业务逻辑失败
+                                log_error!("获取用户信息未成功完成: {}", user_info_result_str);
                             },
                             Err(e) => {
-                                log_error!("解析登录结果失败: {}, 原始字符串: {}", e, login_result_str);
+                                log_error!("解析获取用户信息结果失败: {}, 原始字符串: {}", e, user_info_result_str);
                             }
                         }
                         
-                        // 登录失败或解析失败，使用匿名用户
+                        // 获取用户信息失败或解析失败，使用匿名用户
                         log_info!("使用访客身份");
                         return CloudState::Initialized {
                             user_name: format!("访客_{}", rand::gen_range(100, 999)),
@@ -345,18 +345,20 @@ pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
                                 .unwrap_or("未知玩家").to_string();
                             let score = item.get("value").and_then(|v| v.as_u64())
                                 .unwrap_or(0) as u32;
-                            let rank = item.get("rank").and_then(|v| v.as_u64())
-                                .unwrap_or((i + 1) as u64) as u32;
+                            let rank_val = item.get("rank").and_then(|v| v.as_u64());
                             
-                            // log_info!("解析排名: user_id={}, name={}, score={}, rank={}", user_id, name, score, rank);
-                            ranks.push(PlayerRank { user_id, name, score, rank });
+                            let final_rank = rank_val.map(|r| r as u32).unwrap_or((i + 1) as u32);
+                            
+                            ranks.push(PlayerRank { user_id, name, score, rank: final_rank });
                         }
                         
-                        let mut state = CLOUD_STATE.lock().unwrap();
-                        if let CloudState::Initialized { top_ranks: ref mut tr, .. } = *state {
+                        // 在这里获取锁并更新状态 (这是步骤2，恢复并放置到正确位置)
+                        let mut state_guard = CLOUD_STATE.lock().unwrap();
+                        if let CloudState::Initialized { top_ranks: ref mut tr, .. } = *state_guard {
                             *tr = ranks;
-                            log_info!("排行榜数据已更新");
+                            log_info!("排行榜数据已更新 (正确位置)");
                         }
+                        // MutexGuard (state_guard) 会在这里离开作用域并释放锁
                         return Ok(());
                     } else {
                         log_error!("排行榜数据格式错误: 缺少 'data' 数组");
@@ -420,18 +422,27 @@ pub async fn get_player_rank() -> Result<(), String> {
                             let score = json.get("score").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                             let result_user_id = json.get("user_id").and_then(|v| v.as_str()).unwrap_or(&user_id).to_string();
                             
-                            let player_rank = PlayerRank {
+                            let player_rank_data = PlayerRank {
                                 user_id: result_user_id,
                                 name: user_name.clone(),
                                 score,
                                 rank,
                             };
                             
-                            let mut state = CLOUD_STATE.lock().unwrap();
-                            if let CloudState::Initialized { player_rank: ref mut pr, .. } = *state {
-                                *pr = Some(player_rank);
-                                log_info!("玩家排名已更新");
+                            // 在这里获取锁并更新状态 (这是步骤2，恢复并放置到正确位置)
+                            let mut state_guard = CLOUD_STATE.lock().unwrap();
+                            if let CloudState::Initialized { player_rank: ref mut pr, user_id: ref current_user_id, .. } = *state_guard {
+                                // 确保我们更新的是当前登录用户的排名信息
+                                if *current_user_id == player_rank_data.user_id {
+                                    *pr = Some(player_rank_data);
+                                    log_info!("玩家排名已更新 (正确位置)");
+                                } else {
+                                    log_warn!("获取到的玩家排名 user_id 与当前 CLOUD_STATE user_id 不匹配，未更新排名。");
+                                }
+                            } else {
+                                log_warn!("CLOUD_STATE 不是 Initialized 状态，无法更新玩家排名。");
                             }
+                            // MutexGuard (state_guard) 会在这里离开作用域并释放锁
                             return Ok(());
                         }
                         let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");

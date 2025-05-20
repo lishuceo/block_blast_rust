@@ -1753,19 +1753,36 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    // 使用当前时间戳作为随机数种子
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|e| {
-            // 如果时间在 UNIX EPOCH 之前（不太可能，但作为健壮性处理）
-            // 或者 unwrap_or_else 用于其他潜在错误
-            log_warn!("SystemTime before UNIX EPOCH or other error! Using default seed. Error: {}", e);
-            std::time::Duration::from_secs(0) // 回退到0，或某个固定值
-        })
-        .as_nanos() as u64; // 使用纳秒部分增加随机性
+    // 设置随机数种子 - 这里可能就是调用 SystemTime::now() 的地方
+    #[cfg(target_arch = "wasm32")]
+    {
+        // 对于WASM，我们需要一个不同的方式来获取种子，因为SystemTime::now()可能不可靠
+        // 使用js Date.now() 作为种子的一部分
+        let seed_from_js = unsafe {
+            std::mem::transmute::<f64, u64>(miniquad::date::now()) 
+        };
+        mq_rand::srand(seed_from_js);
+        // log_info!("WASM 随机数种子已使用 JS Date.now() 设置: {}", seed_from_js); // Temporarily comment out for debugging panic
 
-    mq_rand::srand(seed);
-    log_info!("Random seed initialized with: {}", seed);
+        // 尝试初始化panic hook
+        wasm_init(); // 调用我们之前定义的panic hook设置
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // 使用当前时间戳作为随机数种子
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|e| {
+                // 如果时间在 UNIX EPOCH 之前（不太可能，但作为健壮性处理）
+                // 或者 unwrap_or_else 用于其他潜在错误
+                log_warn!("SystemTime before UNIX EPOCH or other error! Using default seed. Error: {}", e);
+                std::time::Duration::from_secs(0) // 回退到0，或某个固定值
+            })
+            .as_nanos() as u64; // 使用纳秒部分增加随机性
+
+        mq_rand::srand(seed);
+        log_info!("Random seed initialized with: {}", seed);
+    }
 
     // 显示设备信息和DPI缩放
     let _dpi_scale = get_dpi_scale();
