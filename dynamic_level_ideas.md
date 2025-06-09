@@ -35,15 +35,10 @@
         -   *方块组合设计:* 生成的方块组在形状上倾向于可以互相配合、嵌套或轻松排列以消除多行/列。
         -   *"暗示性"生成:* 引导玩家发现多行消除的可能性。
 
--   **挑战预告 (已移除):**
-    -   ~~在挑战阶段开始前 1-2 回合，给出视觉或听觉提示。~~
-    -   此阶段已从 `WaveManager` 中移除，以使游戏流程更紧凑。
-
 -   **挑战阶段 (波峰):**
     -   难度显著提升，方块复杂度因子增加，持续固定回合数。
-    -   **挑战类型 (目前有 `BlockFlood`, `TargetRows`, `TargetCols`):**
+    -   **挑战类型 (目前仅有 `BlockFlood`):**
         -   **方块潮 (`BlockFlood`):** 方块复杂度因子显著提高。
-        -   **精准消除任务 (`TargetRows`, `TargetCols`):** 指定特定行/列，在挑战回合内消除可获高额奖励。`Grid` 会高亮目标行/列。
     -   目标：考验玩家的空间管理、快速决策和消除技巧。
 
 -   **缓和阶段 (Relief):**
@@ -67,7 +62,7 @@
 ## 实现考量
 
 -   `Game` 结构体已包含 `turn_count` (通过 `WaveManager` 间接管理) 和 `WaveManager` 实例。
--   `WaveManager` (`wave.rs`) 管理 `WavePhase` 枚举、阶段转换、回合计数、难度参数 (`block_complexity_factor`)。
+-   `WaveManager` (`wave.rs`) 管理 `WavePhase` 枚举、阶段转换、回合计数、难度参数 (`block_complexity_factor`)。挑战类型目前固定为 `BlockFlood`。
     -   新增 `should_offer_helpful_block(grid_filled_ratio: f32) -> bool` 方法用于判断是否提供帮助方块。
 -   `update_game` 在成功放置方块后调用 `wave_manager.increment_turn()`。
 -   `generate_blocks` (`main.rs`) 根据 `WaveManager` 的状态和 `Grid` 的分析结果调整方块生成：
@@ -80,6 +75,6 @@
     -   新增 `BlockShape::new_dot()` 用于直接创建1x1方块。
     -   `rotate_90_clockwise`, `normalize_cells`, `get_random_block_color` 已设为 `pub`。
     -   `SHAPE_DOT`, `SHAPE_H2` 已设为 `pub const`。
--   `draw_game` 已添加反映当前波次阶段的文本。
+-   `draw_game` 已添加反映当前波次阶段的文本 (目前挑战阶段仅显示为 "方块潮")。
 -   `effects.rs` 提供视觉特效，未来可增强。
 -   音效系统待集成。 

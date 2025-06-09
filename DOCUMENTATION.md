@@ -80,12 +80,13 @@ block_blast_rust/
 
 5. **方块生成 (`Game::generate_blocks`)**:
    - **动态生成**: 现在从 `wave_manager` 获取方块生成的数量 (固定为3) 和当前的方块复杂度因子 (`block_complexity_factor`)。
-   - **情景感知生成 (初步)**:
-     - 在生成方块前，会获取当前棋盘的填充率。
-     - 调用 `wave_manager.should_offer_helpful_block()` 判断是否应该提供"帮助性"方块。
-     - 如果需要帮助，则调用 `grid.find_placeable_shapes_for_empty_spots()` (目标是1格或2格的 `SHAPE_DOT` 或 `SHAPE_H2` 及其旋转)，尝试找到可以放置在当前棋盘空位上的小方块。
-     - 如果找到候选的"有用方块"，会随机选择一个加入到待选列表中，替换掉一个普通生成的方块。
-     - 其余方块通过 `block::BlockShape::generate_with_complexity()` 结合当前的复杂度因子生成。
+   - **情景感知生成 (改进版)**:
+     - 在生成方块前，调用 `grid.get_difficulty_score()` 获取基于连通区域分析的困难度分数
+     - 调用 `wave_manager.should_offer_helpful_block_v2(difficulty_score)` 判断是否应该提供"帮助性"方块
+     - 这种方法比原有的填充率判断更准确，能识别出空白区域被分割成孤立小块的困难情况
+     - 如果需要帮助，则调用 `grid.find_placeable_shapes_for_empty_spots()` 尝试找到可以放置的小方块（支持1-5格的多种形状）
+     - 如果找到候选的"有用方块"，会随机选择一个加入到待选列表中
+     - 其余方块通过 `block::BlockShape::generate_with_complexity()` 结合当前的复杂度因子生成
 
 6. **中文文本支持**:
    - 实现了 `draw_chinese_text` 函数支持中文显示
@@ -180,7 +181,7 @@ block_blast_rust/
    - `can_place_block` 检查方块是否可放置。
    - `place_block` 在网格上放置方块。
    - `check_and_clear` 检查并消除已填满的行和列，**返回被清除的行和列的索引 `(Vec<usize>, Vec<usize>)`**。
-   - `draw_with_highlights` 渲染网格和已放置的方块，并能高亮显示由 `WaveManager` 指定的目标行/列。
+   - `draw` 渲染网格和已放置的方块。(之前是 `draw_with_highlights`，由于移除了目标行/列，不再需要高亮)
 
 3. **辅助功能**:
    - `can_place_block_with_tolerance` 提供放置容错，改善用户体验。
@@ -192,15 +193,54 @@ block_blast_rust/
      - 尝试将 `target_shapes` (例如1格或2格的小方块) 的所有旋转形式放置到棋盘上的所有空位。
      - 返回一个 `Vec<BlockShape>` 列表，包含所有成功找到的、格子数不超过 `max_cells_to_fill` 且可以放置的方块实例（已赋予随机颜色）。用于"情景感知方块生成"。
 
+4. **连通区域分析**（新增）:
+   - **新增**: `pub fn analyze_connected_empty_regions(&self) -> Vec<RegionInfo>`:
+     - 使用洪水填充算法分析所有连通的空白区域
+     - 返回按大小排序的 `RegionInfo` 结构体数组，包含每个区域的详细信息
+   - **新增**: `pub fn get_difficulty_score(&self) -> f32`:
+     - 基于连通区域分析计算棋盘的困难程度（0.0-1.0）
+     - 考虑因素包括：最大连通区域的大小、形状分数、区域碎片化程度、是否能容纳大型方块
+     - 替代原有的简单填充率判断，提供更准确的游戏困难度评估
+
+5. **RegionInfo 结构**（新增）:
+   ```rust
+   pub struct RegionInfo {
+       pub cell_count: usize,        // 区域包含的格子数
+       pub min_x: usize,             // 区域的最小X坐标
+       pub max_x: usize,             // 区域的最大X坐标
+       pub min_y: usize,             // 区域的最小Y坐标
+       pub max_y: usize,             // 区域的最大Y坐标
+       pub width: usize,             // 区域宽度
+       pub height: usize,            // 区域高度
+       pub shape_score: f32,         // 形状分数（0.0-1.0），越接近1.0表示越方正
+       cells: Vec<(usize, usize)>,   // 区域包含的所有格子坐标
+   }
+   ```
+   - `can_fit_4x4_block()`: 检查该区域是否能容纳4x4的方块
+   - `is_square_like()`: 检查该区域是否偏向方形且足够大
+
+6. **困难度评分系统优化**（2024年更新）:
+   - **问题**：原有系统阈值过严，导致帮助功能很少触发
+   - **改进的评分因素**：
+     - 最大连通区域大小：调整阈值为 <6/12/20/30 格子对应不同困难度
+     - 形状质量：降低权重但保持对狭长形状的惩罚
+     - 碎片化程度：提高权重至0.35，更重视空间分割问题
+     - **新增**空白格子占比：当空白格子少于30%或50%时增加困难度
+     - 4x4方块容纳能力：降低权重至0.15
+   - **帮助触发优化**：
+     - 降低各阶段的困难度阈值，使帮助更容易触发
+     - 添加更多分级，实现更平滑的帮助概率曲线
+     - 即使在低困难度下也保留小概率帮助机会
+
 ### wave.rs (动态波次与难度管理器)
 
 新增的 `WaveManager` 模块负责管理游戏的动态节奏、难度调整和周期性挑战，以取代原有的固定难度模式。
 
 1.  **核心概念**:
     *   **回合 (`turn_count`)**: 玩家每成功放置一个方块计为一个回合。
-    *   **波次阶段 (`WavePhase`)**: 游戏在 `Accumulation` (积累)、`ChallengeActive` (挑战激活)、`Relief` (缓和) 三个主要阶段间周期性切换。原有的 `ChallengeIncoming` (挑战预告) 阶段已被移除以使节奏更紧凑。
+    *   **波次阶段 (`WavePhase`)**: 游戏在 `Accumulation` (积累)、`ChallengeActive` (挑战激活)、`Relief` (缓和) 三个主要阶段间周期性切换。
     *   **方块复杂度因子 (`block_complexity_factor`)**: 一个动态调整的浮点数，影响生成方块的复杂程度。会根据总回合数和当前波次阶段进行调整。
-    *   **挑战类型 (`ChallengeType`)**: 目前实现了 `BlockFlood` (方块潮，提高复杂度)、`TargetRows` (目标行)、`TargetCols` (目标列)。
+    *   **挑战类型 (`ChallengeType`)**: 目前仅实现 `BlockFlood` (方块潮，提高复杂度)。
 
 2.  **主要功能**:
     *   `new()`: 初始化 `WaveManager`，设置各阶段的默认持续回合数、初始复杂度等。
@@ -208,18 +248,25 @@ block_blast_rust/
     *   `update_phase()`: 根据当前阶段已持续的回合数和配置的阶段长度，自动切换到下一个阶段。
     *   `transition_to()`: 处理阶段切换时的状态重置。
     *   `update_difficulty()`: 根据当前所处阶段和总回合数，调整 `block_complexity_factor`。
-    *   `select_next_challenge()`: 为接下来的 `ChallengeActive` 阶段选择一个挑战类型。
-    *   `start_challenge()` / `end_challenge()`: 处理挑战开始和结束时的逻辑，包括目标设置和奖励计算。
-    *   `notify_line_cleared()`: 在行或列被消除时调用，用于更新目标挑战的完成进度和计算相关奖励。
+    *   `select_next_challenge()`: 为接下来的 `ChallengeActive` 阶段选择一个挑战类型 (目前固定为 `BlockFlood`)。
+    *   `start_challenge()` / `end_challenge()`: 处理挑战开始和结束时的逻辑，包括奖励计算。
+    *   `notify_line_cleared()`: 在行或列被消除时调用，用于更新挑战进度和计算相关奖励 (当前 `BlockFlood` 挑战下无特定逻辑)。
     *   **新增**: `pub fn should_offer_helpful_block(&self, grid_filled_ratio: f32) -> bool`:
         - 根据当前波次阶段和棋盘的填充比例 (`grid_filled_ratio`)，以一定的概率决定是否应该为玩家提供"帮助性"的小方块。在"缓和"阶段或"积累"阶段棋盘较满时，提供帮助的概率会更高。
+    *   **新增**: `pub fn should_offer_helpful_block_v2(&self, difficulty_score: f32) -> bool`:
+        - 基于连通区域分析的困难度分数（而非简单的填充率）决定是否提供帮助
+        - 相比原版本，能更准确地识别玩家需要帮助的情况（如空白区域被分割成多个孤立小块）
+        - 不同阶段有不同的帮助概率曲线：
+          - 缓和阶段：最容易获得帮助，困难度0.7时几乎必定帮助
+          - 积累阶段：中等帮助概率，根据困难度动态调整
+          - 挑战阶段：较少帮助，但极度困难时仍会提供支援
 
 3.  **与游戏主循环的集成 (`main.rs`)**:
     *   `Game` 结构体包含一个 `WaveManager` 实例。
     *   在 `Game::update_game()` 中，成功放置方块后调用 `wave_manager.increment_turn()`。
     *   `Game::generate_blocks()` 会从 `wave_manager` 获取当前的 `blocks_per_generation` (固定为3) 和 `block_complexity_factor`，并调用 `wave_manager.should_offer_helpful_block()` 来辅助决定是否生成"有用方块"。
     *   消除行/列后，会调用 `wave_manager.notify_line_cleared()`。
-    *   游戏界面会显示当前的 `WavePhase`。
+    *   游戏界面会显示当前的 `WavePhase` (当前挑战仅为方块潮)。
 
 ### effects.rs
 

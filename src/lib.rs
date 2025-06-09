@@ -17,7 +17,7 @@ pub mod save;
 pub mod effects;
 pub mod cloud;
 pub mod log;
-pub mod random;
+// pub mod random; // 已废弃，使用 macroquad::rand 代替
 pub mod drawing;
 pub mod constants;
 pub mod utils;

@@ -12,6 +12,7 @@ use std::task::{Context, Poll};
 
 // 导入宏
 use crate::{log_debug, log_info, log_warn, log_error};
+use crate::utils; // <-- 添加对 utils 模块的引用
 
 // 声明JavaScript外部函数
 #[cfg(target_arch = "wasm32")]
@@ -60,7 +61,7 @@ fn invoke_js_with_result(js_code: &str) -> String {
     #[cfg(target_arch = "wasm32")]
     {
         // 调用同步JS函数
-        let result_code = unsafe {
+        let _result_code = unsafe {
             let js_code_bytes = js_code.as_bytes();
             js_invoke_string(js_code_bytes.as_ptr(), js_code_bytes.len())
         };
@@ -167,23 +168,19 @@ pub async fn init_cloud_service() -> CloudState {
     {
         log_info!("开始初始化云服务...");
         
-        // 1. 同步调用初始化 SDK
         let init_js = r#"window.sce_init_sdk(window.SCE_CONFIG.developer_token);"#;
         let init_result_str = invoke_js_with_result(init_js);
         log_info!("SDK 初始化结果 (同步): {}", init_result_str);
         
-        // 2. 解析初始化结果
         match serde_json::from_str::<serde_json::Value>(&init_result_str) {
             Ok(json) => {
                 if let Some(success) = json.get("success").and_then(|v| v.as_bool()) {
                     if success {
                         log_info!("SDK 初始化成功，尝试异步获取用户信息...");
                         
-                        // 3. 启动异步获取用户信息调用
                         let get_user_info_js = r#"window.sce_get_user_info_for_rust();"#;
                         if let Err(e) = start_async_js_call(get_user_info_js) {
                              log_error!("启动获取用户信息失败: {}", e);
-                             // 即使获取用户信息启动失败，也认为初始化基本完成，使用访客身份
                              return CloudState::Initialized {
                                 user_name: format!("访客_{}", rand::gen_range(100, 999)),
                                 user_id: format!("guest_{}", rand::gen_range(10000, 99999)),
@@ -192,7 +189,6 @@ pub async fn init_cloud_service() -> CloudState {
                              };
                         }
 
-                        // 4. 轮询等待获取用户信息结果
                         let user_info_result_str = loop {
                             let result = get_js_result();
                             if result.is_empty() {
@@ -204,7 +200,6 @@ pub async fn init_cloud_service() -> CloudState {
                             }
                         };
 
-                        // 5. 解析获取用户信息结果
                         match serde_json::from_str::<serde_json::Value>(&user_info_result_str) {
                             Ok(user_info_json) => {
                                 if let Some(user_info_success) = user_info_json.get("success").and_then(|v| v.as_bool()) {
@@ -223,7 +218,6 @@ pub async fn init_cloud_service() -> CloudState {
                                         };
                                     }
                                 }
-                                // 获取用户信息API调用成功但业务逻辑失败
                                 log_error!("获取用户信息未成功完成: {}", user_info_result_str);
                             },
                             Err(e) => {
@@ -231,7 +225,6 @@ pub async fn init_cloud_service() -> CloudState {
                             }
                         }
                         
-                        // 获取用户信息失败或解析失败，使用匿名用户
                         log_info!("使用访客身份");
                         return CloudState::Initialized {
                             user_name: format!("访客_{}", rand::gen_range(100, 999)),
@@ -240,7 +233,6 @@ pub async fn init_cloud_service() -> CloudState {
                         };
                     }
                 }
-                // 初始化 API 调用成功但业务逻辑失败
                 let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知初始化错误");
                 log_error!("SDK 初始化失败: {}", message);
                 return CloudState::Error(message.to_string());
@@ -271,8 +263,11 @@ pub async fn submit_score(score: u32) -> Result<(), String> {
         let cloud_state = CLOUD_STATE.lock().unwrap().clone();
         match cloud_state {
             CloudState::Initialized { .. } => {
-                log_info!("准备提交分数: {}", score);
-                let js_code = format!("window.sce_upload_score({})", score);
+                let weekly_key = utils::get_weekly_leaderboard_key(); // <--- 获取每周的 key
+                log_info!("准备提交分数: {} 到周榜 key: {}", score, weekly_key);
+                // 注意：JS 函数需要 key 作为第一个参数，score 作为第二个参数。
+                // 需要确保JS字符串中的 key 被正确地作为字符串传递。
+                let js_code = format!("window.sce_upload_score('{}', {})", weekly_key, score);
                 start_async_js_call(&js_code)?;
 
                 let result_str = loop {
@@ -281,7 +276,7 @@ pub async fn submit_score(score: u32) -> Result<(), String> {
                         next_frame().await;
                         continue;
                     } else {
-                        log_info!("提交分数结果: {}", result);
+                        log_info!("提交分数结果 (周榜 key: {}): {}", weekly_key, result);
                         break result;
                     }
                 };
@@ -289,15 +284,15 @@ pub async fn submit_score(score: u32) -> Result<(), String> {
                 match serde_json::from_str::<serde_json::Value>(&result_str) {
                     Ok(json) => {
                         if let Some(true) = json.get("success").and_then(|v| v.as_bool()) {
-                            log_info!("分数提交成功");
+                            log_info!("分数提交成功 (周榜 key: {})", weekly_key);
                             return Ok(());
                         }
                         let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");
-                        log_error!("提交分数失败: {}", message);
+                        log_error!("提交分数失败 (周榜 key: {}): {}", weekly_key, message);
                         Err(message.to_string())
                     },
                     Err(e) => {
-                        log_error!("解析提交分数结果失败: {}, 原始字符串: {}", e, result_str);
+                        log_error!("解析提交分数结果失败 (周榜 key: {}): {}, 原始字符串: {}", weekly_key, e, result_str);
                         Err(format!("解析结果失败: {}", e))
                     }
                 }
@@ -309,7 +304,8 @@ pub async fn submit_score(score: u32) -> Result<(), String> {
     
     #[cfg(not(target_arch = "wasm32"))]
     {
-        log_info!("在非WASM环境中运行，分数不会提交到在线排行榜");
+        let weekly_key = utils::get_weekly_leaderboard_key();
+        log_info!("在非WASM环境中运行，分数 {} 不会提交到在线周榜 (key: {})", score, weekly_key);
         Ok(())
     }
 }
@@ -318,8 +314,10 @@ pub async fn submit_score(score: u32) -> Result<(), String> {
 pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
     #[cfg(target_arch = "wasm32")]
     {
-        log_info!("准备获取排行榜数据 (limit={})", limit);
-        let js_code = format!("window.sce_get_leaderboard({})", limit);
+        let weekly_key = utils::get_weekly_leaderboard_key(); // <--- 获取每周的 key
+        log_info!("准备获取周榜数据 (key: {}, limit={})", weekly_key, limit);
+        // 需要确保JS字符串中的 key 被正确地作为字符串传递。
+        let js_code = format!("window.sce_get_leaderboard('{}', {})", weekly_key, limit);
         start_async_js_call(&js_code)?;
 
         let result_str = loop {
@@ -328,7 +326,7 @@ pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
                 next_frame().await;
                 continue;
             } else {
-                log_info!("获取排行榜数据结果: {}", result);
+                log_info!("获取周榜数据结果 (key: {}): {}", weekly_key, result);
                 break result;
             }
         };
@@ -352,25 +350,23 @@ pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
                             ranks.push(PlayerRank { user_id, name, score, rank: final_rank });
                         }
                         
-                        // 在这里获取锁并更新状态 (这是步骤2，恢复并放置到正确位置)
                         let mut state_guard = CLOUD_STATE.lock().unwrap();
                         if let CloudState::Initialized { top_ranks: ref mut tr, .. } = *state_guard {
                             *tr = ranks;
-                            log_info!("排行榜数据已更新 (正确位置)");
+                            log_info!("周榜数据已更新 (key: {})", weekly_key);
                         }
-                        // MutexGuard (state_guard) 会在这里离开作用域并释放锁
                         return Ok(());
                     } else {
-                        log_error!("排行榜数据格式错误: 缺少 'data' 数组");
+                        log_error!("周榜数据格式错误 (key: {}): 缺少 'data' 数组", weekly_key);
                         return Err("数据格式错误".to_string());
                     }
                 }
                 let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");
-                log_error!("获取排行榜失败: {}", message);
+                log_error!("获取周榜失败 (key: {}): {}", weekly_key, message);
                 Err(message.to_string())
             },
             Err(e) => {
-                log_error!("解析排行榜数据失败: {}, 原始字符串: {}", e, result_str);
+                log_error!("解析周榜数据失败 (key: {}): {}, 原始字符串: {}", weekly_key, e, result_str);
                 Err(format!("解析结果失败: {}", e))
             }
         }
@@ -378,12 +374,11 @@ pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
     
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // 在非WASM环境中使用模拟数据
-        log_info!("使用模拟排行榜数据");
+        let weekly_key = utils::get_weekly_leaderboard_key();
+        log_info!("使用模拟周榜数据 (key: {})", weekly_key);
         let ranks = vec![
-            PlayerRank { user_id: "test1".to_string(), name: "测试玩家1".to_string(), score: 5000, rank: 1, },
-            PlayerRank { user_id: "test2".to_string(), name: "测试玩家2".to_string(), score: 4500, rank: 2, },
-            PlayerRank { user_id: "test3".to_string(), name: "测试玩家3".to_string(), score: 4000, rank: 3, }
+            PlayerRank { user_id: "test_w1".to_string(), name: "本周玩家1".to_string(), score: 1500, rank: 1, },
+            PlayerRank { user_id: "test_w2".to_string(), name: "本周玩家2".to_string(), score: 1200, rank: 2, }
         ];
         let mut state = CLOUD_STATE.lock().unwrap();
         if let CloudState::Initialized { top_ranks: ref mut tr, .. } = *state {
@@ -397,12 +392,14 @@ pub async fn get_leaderboard(limit: u32) -> Result<(), String> {
 pub async fn get_player_rank() -> Result<(), String> {
     #[cfg(target_arch = "wasm32")]
     {
-        let cloud_state = CLOUD_STATE.lock().unwrap().clone();
-        match cloud_state {
+        let cloud_state_clone = CLOUD_STATE.lock().unwrap().clone(); // Clone to release lock early if needed
+        match cloud_state_clone {
             CloudState::Initialized { user_name, user_id, .. } => {
-                log_info!("准备获取玩家排名 (user_id={})", user_id);
-                let js_code = "window.sce_get_user_rank()";
-                start_async_js_call(js_code)?;
+                let weekly_key = utils::get_weekly_leaderboard_key(); // <--- 获取每周的 key
+                log_info!("准备获取玩家周排名 (key: {}, user_id={})", weekly_key, user_id);
+                // 需要确保JS字符串中的 key 被正确地作为字符串传递。
+                let js_code = format!("window.sce_get_user_rank('{}')", weekly_key);
+                start_async_js_call(&js_code)?;
 
                 let result_str = loop {
                     let result = get_js_result();
@@ -410,7 +407,7 @@ pub async fn get_player_rank() -> Result<(), String> {
                         next_frame().await;
                         continue;
                     } else {
-                        log_info!("获取玩家排名结果: {}", result);
+                        log_info!("获取玩家周排名结果 (key: {}): {}", weekly_key, result);
                         break result;
                     }
                 };
@@ -424,33 +421,30 @@ pub async fn get_player_rank() -> Result<(), String> {
                             
                             let player_rank_data = PlayerRank {
                                 user_id: result_user_id,
-                                name: user_name.clone(),
+                                name: user_name.clone(), // Use the name from the cloned state
                                 score,
                                 rank,
                             };
                             
-                            // 在这里获取锁并更新状态 (这是步骤2，恢复并放置到正确位置)
                             let mut state_guard = CLOUD_STATE.lock().unwrap();
                             if let CloudState::Initialized { player_rank: ref mut pr, user_id: ref current_user_id, .. } = *state_guard {
-                                // 确保我们更新的是当前登录用户的排名信息
                                 if *current_user_id == player_rank_data.user_id {
                                     *pr = Some(player_rank_data);
-                                    log_info!("玩家排名已更新 (正确位置)");
+                                    log_info!("玩家周排名已更新 (key: {})", weekly_key);
                                 } else {
-                                    log_warn!("获取到的玩家排名 user_id 与当前 CLOUD_STATE user_id 不匹配，未更新排名。");
+                                    log_warn!("获取到的玩家周排名 user_id 与当前 CLOUD_STATE user_id 不匹配，未更新排名。");
                                 }
                             } else {
-                                log_warn!("CLOUD_STATE 不是 Initialized 状态，无法更新玩家排名。");
+                                log_warn!("CLOUD_STATE 不是 Initialized 状态，无法更新玩家周排名。");
                             }
-                            // MutexGuard (state_guard) 会在这里离开作用域并释放锁
                             return Ok(());
                         }
                         let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("未知错误");
-                        log_error!("获取玩家排名失败: {}", message);
+                        log_error!("获取玩家周排名失败 (key: {}): {}", weekly_key, message);
                         Err(message.to_string())
                     },
                     Err(e) => {
-                        log_error!("解析玩家排名结果失败: {}, 原始字符串: {}", e, result_str);
+                        log_error!("解析玩家周排名结果失败 (key: {}): {}, 原始字符串: {}", weekly_key, e, result_str);
                         Err(format!("解析结果失败: {}", e))
                     }
                 }
@@ -462,8 +456,9 @@ pub async fn get_player_rank() -> Result<(), String> {
     
     #[cfg(not(target_arch = "wasm32"))]
     {
-        log_info!("使用模拟玩家排名数据");
-        let player_rank = PlayerRank { user_id: "local_user".to_string(), name: "本地玩家".to_string(), score: 0, rank: 10, };
+        let weekly_key = utils::get_weekly_leaderboard_key();
+        log_info!("使用模拟玩家周排名数据 (key: {})", weekly_key);
+        let player_rank = PlayerRank { user_id: "local_user".to_string(), name: "本地玩家".to_string(), score: 1200, rank: 2, };
         let mut state = CLOUD_STATE.lock().unwrap();
         if let CloudState::Initialized { player_rank: ref mut pr, .. } = *state {
             *pr = Some(player_rank);
@@ -502,13 +497,9 @@ pub fn get_leaderboard_data() -> (bool, Option<String>, Vec<PlayerRank>, Option<
 #[cfg(target_arch = "wasm32")]
 pub async fn initialize_sdk() -> Result<(), String> {
     log_info!("调用 initialize_sdk (入口)");
-    // 调用包含轮询逻辑的 init_cloud_service
     let final_state = init_cloud_service().await;
-
-    // 将最终状态更新到全局 CLOUD_STATE
     *CLOUD_STATE.lock().unwrap() = final_state.clone();
     
-    // 根据最终状态返回结果
     match final_state {
         CloudState::Initialized { .. } => {
             log_info!("initialize_sdk 完成: 成功 (全局状态已更新)");
@@ -529,11 +520,8 @@ pub async fn initialize_sdk() -> Result<(), String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn initialize_sdk() -> Result<(), String> {
     log_info!("非WASM环境下模拟初始化SDK");
-    // 调用已有的init_cloud_service函数
     let final_state = init_cloud_service().await;
-    // 更新全局状态
     *CLOUD_STATE.lock().unwrap() = final_state.clone();
-    // 返回成功
     Ok(())
 }
 

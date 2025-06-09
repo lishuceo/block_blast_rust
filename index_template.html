@@ -228,14 +228,14 @@
         };
         
         // 上传分数
-        window.sce_upload_score = async function(score) {
+        window.sce_upload_score = async function(key, score) {
             try {
-                const res = await SceSDK.cloud.set_number('player_score', score);
+                const res = await SceSDK.cloud.set_number(key, score);
                 if (res.result) {
-                    console.log(`set_number 成功`);
+                    console.log(`set_number 成功 for key ${key}`);
                     return JSON.stringify({ success: true });
                 } else {
-                    console.error(`set_number 错误: ${res.error}`);
+                    console.error(`set_number 错误 for key ${key}: ${res.error}`);
                     return JSON.stringify({ success: false, message: res.error });
                 }
             } catch (error) {
@@ -245,11 +245,11 @@
         };
         
         // 获取排行榜
-        window.sce_get_leaderboard = async function(limit) {
-            console.log("call sce_get_leaderboard");
+        window.sce_get_leaderboard = async function(key, limit) {
+            console.log(`call sce_get_leaderboard for key ${key} with limit ${limit}`);
             try {
                 const res = await SceSDK.cloud.get_top_rank({
-                    key: 'player_score',
+                    key: key,
                     limit: limit || 20,
                     without_name: false,
                     order_by: 'desc'
@@ -261,7 +261,7 @@
                         data: res.result
                     });
                 } else {
-                    console.error(`获取排行榜失败: ${res.error}`);
+                    console.error(`获取排行榜失败 for key ${key}: ${res.error}`);
                     return JSON.stringify({ success: false, message: res.error, data: [] });
                 }
             } catch (error) {
@@ -271,9 +271,9 @@
         };
         
         // 获取用户排名
-        window.sce_get_user_rank = async function() {
+        window.sce_get_user_rank = async function(key) {
             try {
-                const res = await SceSDK.cloud.get_user_rank({ key: 'player_score' });
+                const res = await SceSDK.cloud.get_user_rank({ key: key });
                 if (res.result) {
                     console.log("获取用户排名成功:", res.result);
                     return JSON.stringify({
@@ -283,7 +283,7 @@
                         user_id: res.result.user_id
                     });
                 } else {
-                    console.error(`获取用户排名失败: ${res.error}`);
+                    console.error(`获取用户排名失败 for key ${key}: ${res.error}`);
                     return JSON.stringify({ success: false, message: res.error });
                 }
             } catch (error) {

@@ -3,12 +3,15 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use block_blast::GameMode; 
 use block_blast::wave::{WaveManager, WavePhase, ChallengeType}; 
+use std::collections::HashMap;
+use crate::effects::Effects; // <--- 添加对 Effects 类型的导入
 
 // 确保以下导入存在
 use macroquad::rand as mq_rand; 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::constants::{COLOR_PRIMARY, COLOR_PRIMARY_DARK, COLOR_PRIMARY_OVERLAY, COLOR_BORDER, COLOR_TITLE};
+use crate::constants::{COLOR_PRIMARY, COLOR_PRIMARY_DARK, COLOR_PRIMARY_OVERLAY, COLOR_BORDER, COLOR_TITLE, GOLD, ORANGE}; 
+// use crate::utils; // <--- 确保这行被移除或注释掉
 
 pub mod block;
 pub mod grid;
@@ -16,9 +19,9 @@ pub mod save;
 pub mod effects;
 pub mod cloud;
 pub mod log;
-pub mod drawing; // 添加 drawing 模块声明
+pub mod drawing; 
 mod constants;
-mod utils;    
+mod utils;    // <--- 确保这行存在，将 utils.rs 声明为 main.rs 的子模块
 
 // 使用宏导入
 #[macro_use]
@@ -239,6 +242,9 @@ struct Game {
     
     // 新增：用于方块返回动画
     animating_block: Option<AnimatingBlockData>,
+
+    // 新增：用于累积统计方块形状出现次数
+    accumulated_shape_counts: HashMap<String, usize>,
 }
 
 impl Game {
@@ -257,7 +263,7 @@ impl Game {
             save_data: save::SaveData::load(), // 仍然加载，但不再用于最高分判断
             cloud_high_score: None,    // 初始化为 None
             needs_score_upload: false, // 初始化为 false
-            game_mode: GameMode::Happy, // 默认设为开心模式 (可以考虑移除或让 WaveManager 控制?)
+            game_mode: GameMode::Normal, // 默认设为Normal模式
             effects: effects::Effects::new(), // 初始化特效系统
             wave_manager: WaveManager::new(), // <--- 初始化 WaveManager
             
@@ -284,6 +290,7 @@ impl Game {
             transition_phase: false,
             
             animating_block: None, // 初始化为 None
+            accumulated_shape_counts: HashMap::new(), // 初始化累积计数器
         }
     }
     
@@ -291,11 +298,33 @@ impl Game {
     fn generate_blocks(&mut self) {
         self.current_blocks.clear();
         
-        let filled_ratio = self.grid.get_filled_ratio();
-        let offer_help = self.wave_manager.should_offer_helpful_block(filled_ratio);
+        // 使用新的困难度分析替代旧的填充率
+        let difficulty_score = self.grid.get_difficulty_score();
+        let offer_help = self.wave_manager.should_offer_helpful_block_v2(difficulty_score);
         let mut helpful_block_generated = false;
 
-        log_info!("generate_blocks: filled_ratio: {}, offer_help: {}", filled_ratio, offer_help);
+        // 添加更详细的日志，包含连通区域分析
+        let regions = self.grid.analyze_connected_empty_regions();
+        log_info!("generate_blocks: difficulty_score: {:.3}, offer_help: {}, regions_count: {}", 
+                  difficulty_score, offer_help, regions.len());
+        
+        // 打印前3个最大的区域的详细信息
+        for (i, region) in regions.iter().take(3).enumerate() {
+            log_info!("  Region {}: {} cells, shape_score: {:.2}, size: {}x{}, bounds: ({},{}) to ({},{})", 
+                      i + 1, region.cell_count, region.shape_score, region.width, region.height,
+                      region.min_x, region.min_y, region.max_x, region.max_y);
+        }
+        
+        // 计算并显示各项评分细节
+        let total_empty_cells: usize = regions.iter().map(|r| r.cell_count).sum();
+        let fragmentation = if total_empty_cells > 0 { 
+            regions.len() as f32 / total_empty_cells as f32 
+        } else { 
+            0.0 
+        };
+        log_info!("  Total empty: {}, Fragmentation: {:.3}, Has 4x4 space: {}", 
+                  total_empty_cells, fragmentation, 
+                  regions.iter().any(|r| r.can_fit_4x4_block()));
 
         if offer_help {
             // 尝试查找可以放置的1至5格的小方块
@@ -337,26 +366,50 @@ impl Game {
                 self.wave_manager.blocks_per_generation
             };
 
-        let complexity = self.wave_manager.block_complexity_factor;
         if num_blocks_to_generate_normally > 0 {
             log_info!(
-                "Generating {} normal blocks with complexity {:.2}. Offer help: {}, Helpful generated: {}", 
-                num_blocks_to_generate_normally, complexity, offer_help, helpful_block_generated
+                "Generating {} normal blocks for mode {:?}. Offer help: {}, Helpful generated: {}", 
+                num_blocks_to_generate_normally, self.game_mode, offer_help, helpful_block_generated
             );
         }
         
         for i in 0..num_blocks_to_generate_normally {
-            log_debug!("Generating normal block {}/{} using complexity {:.2}", i + 1, num_blocks_to_generate_normally, complexity);
-            let block = block::BlockShape::generate_with_complexity(complexity); 
+            log_debug!("Generating normal block {}/{} for mode {:?}", i + 1, num_blocks_to_generate_normally, self.game_mode);
+            let block = block::BlockShape::generate_for_mode(self.game_mode);
             self.current_blocks.push(block);
         }
 
         if self.current_blocks.is_empty() && self.wave_manager.blocks_per_generation > 0 {
             log_warn!("Block generation resulted in empty current_blocks (expected >0). Generating a fallback block.");
-            self.current_blocks.push(block::BlockShape::generate_with_complexity(0.5)); 
+            self.current_blocks.push(block::BlockShape::new_dot()); 
         } else if self.current_blocks.is_empty() && self.wave_manager.blocks_per_generation == 0 {
             log_info!("Block generation resulted in empty current_blocks as per blocks_per_generation = 0 (expected).");
         }
+
+        // --- 新增：统计并打印生成的方块类型 --- 
+        // 移除临时的 shape_counts，我们将使用 game.accumulated_shape_counts
+        // use std::collections::HashMap; 
+        // let mut shape_counts: HashMap<String, usize> = HashMap::new();
+
+        // 辅助函数 identify_shape_approx 不再需要，因为我们将使用 BlockShape.base_shape_name
+        // fn identify_shape_approx(cells: &[(i32, i32)]) -> String { ... }
+
+        for block_shape in &self.current_blocks {
+            // 使用 BlockShape 中存储的 base_shape_name 进行精确统计
+            let shape_name_str = block_shape.base_shape_name.to_string();
+            *self.accumulated_shape_counts.entry(shape_name_str).or_insert(0) += 1;
+        }
+
+        log_info!("Accumulated generated block types distribution (GameMode: {:?}):
+", self.game_mode);
+        // 为了更好的可读性，对结果进行排序（可选）
+        let mut sorted_counts: Vec<_> = self.accumulated_shape_counts.iter().collect();
+        sorted_counts.sort_by_key(|k| k.0.clone()); // 按形状名称排序
+
+        for (shape_name, count) in sorted_counts {
+            log_info!("  - {}: {}", shape_name, count);
+        }
+        // --- 统计结束 ---
     }
     
     // 处理拖拽开始
@@ -508,7 +561,7 @@ impl Game {
         self.leaderboard_error = None;
 
         // 获取排行榜数据
-        match cloud::get_leaderboard(10).await {
+        match cloud::get_leaderboard(50).await {
             Ok(_) => {
                 // 获取玩家排名
                 let _ = cloud::get_player_rank().await;
@@ -631,166 +684,142 @@ impl Game {
 fn draw_leaderboard(game: &mut Game) {
     let width = screen_width();
     let height = screen_height();
-    // let dpi_scale = get_dpi_scale(); // 获取DPI缩放 (Removed)
     
-    // 绘制半透明背景
-    draw_rectangle(0.0, 0.0, width, height, COLOR_PRIMARY_OVERLAY);
+    let top_color = Color::new(40.0/255.0, 72.0/255.0, 160.0/255.0, 0.95);
+    let bottom_color = Color::new(20.0/255.0, 36.0/255.0, 80.0/255.0, 0.95);
+    drawing::draw_vertical_gradient(0.0, 0.0, width, height, top_color, bottom_color);
+
+    let title_font_size = 48.0;
+    let week_range_font_size = 18.0;
+    let header_font_size = 18.0;
+    let entry_font_size = 20.0;
+    let row_height = 45.0;
+    let padding_general = 10.0;
+    let padding_section = 20.0;
+
+    let title_y_center = height * 0.12;
+    draw_chinese_text("每周排行榜", width / 2.0, title_y_center, title_font_size, WHITE);
+
+    let week_range_y_center = title_y_center + (title_font_size / 2.0) + (week_range_font_size / 2.0) + padding_general;
+    let week_range_text = utils::get_current_week_display_text(); // <--- 使用新的函数
+    draw_chinese_text(&week_range_text, width / 2.0, week_range_y_center, week_range_font_size, LIGHTGRAY);
     
-    // 绘制排行榜标题
-    let title_text = "排行榜";
-    let title_font_size = 40.0; // * dpi_scale; // 应用DPI缩放 (Removed)
-    draw_chinese_text(title_text, width / 2.0, height * 0.15, title_font_size, WHITE);
-    
-    // 检查排行榜初始化状态
-    if !game.show_leaderboard_button || game.is_leaderboard_loading {
-        // 显示加载状态或未初始化状态
-        let status_text = if game.is_leaderboard_loading {
-            "正在加载排行榜数据..."
-        } else {
-            "排行榜服务未连接"
-        };
-        draw_chinese_text(status_text, width / 2.0, height * 0.35, 24.0, // * dpi_scale, (Removed)
-                          if game.is_leaderboard_loading { SKYBLUE } else { Color::new(1.0, 0.5, 0.5, 1.0) });
-        
-        // 绘制加载动画
-        if game.is_leaderboard_loading {
-            // 绘制旋转的加载圈
-            let center_x = width / 2.0;
-            let center_y = height * 0.5;
-            let radius = 20.0; // * dpi_scale; (Removed)
-            let thickness = 4.0; // * dpi_scale; (Removed)
-            let rotation_speed = 2.5; // 稍微降低旋转速度，减少视觉冲击
-            
-            // 计算当前旋转角度，添加平滑补间
-            let current_time = get_time() as f32;
-            let rotation = current_time * rotation_speed % (std::f32::consts::PI * 2.0);
-            
-            // 计算透明度脉动 - 在淡入动画期间始终保持高透明度
-            let alpha_base = if game.transition_active && game.transition_phase {
-                // 淡入阶段保持稳定透明度
-                0.9
-            } else {
-                // 正常情况下有轻微脉动
-                0.7 + (current_time * 1.5).sin() * 0.2
-            };
-            
-            // 绘制背景圆圈
-            draw_circle_lines(center_x, center_y, radius, thickness, Color::new(0.3, 0.3, 0.3, alpha_base * 0.7));
-            
-            // 绘制旋转的弧
-            let segments = 32;
-            let start_angle = rotation;
-            let end_angle = start_angle + std::f32::consts::PI * 1.5;
-            
-            // 计算弧的点并绘制线段
-            for i in 0..segments {
-                let t1 = start_angle + (end_angle - start_angle) * i as f32 / segments as f32;
-                let t2 = start_angle + (end_angle - start_angle) * (i + 1) as f32 / segments as f32;
-                
-                let x1 = center_x + radius * t1.cos();
-                let y1 = center_y + radius * t1.sin();
-                let x2 = center_x + radius * t2.cos();
-                let y2 = center_y + radius * t2.sin();
-                
-                // 渐变色彩 - 从蓝色渐变到白色，添加稳定系数
-                let alpha = i as f32 / segments as f32;
-                let color = Color::new(
-                    0.5 + 0.5 * alpha, 
-                    0.7 + 0.3 * alpha, 
-                    1.0, 
-                    (0.7 + 0.3 * alpha) * alpha_base
-                );
-                
-                draw_line(x1, y1, x2, y2, thickness, color);
-            }
-            
-            // 在加载动画下方添加提示
-            draw_chinese_text("正在连接服务器...", center_x, center_y + radius + 30.0, // * dpi_scale, (Removed)
-                            16.0, // * dpi_scale, (Removed)
-                            Color::new(0.5, 0.7, 1.0, alpha_base));
-        } else {
-            // 如果未初始化，显示重试提示
-            draw_chinese_text("点击右上角按钮返回主菜单",
-                             width / 2.0, height * 0.45, 20.0, // * dpi_scale, (Removed)
-                             WHITE);
-        }
-    } else {
-        // 绘制排行榜数据
-        let font_size = 24.0; // * dpi_scale; // 应用DPI缩放 (Removed)
-        let line_height = font_size * 1.5;
-        let start_y = height * 0.25;
-        
-        let leaderboard = &game.leaderboard_data;
-        if leaderboard.is_empty() {
-            let text = "暂无数据";
-            draw_chinese_text(text, width / 2.0, start_y + line_height, font_size, WHITE);
-        } else {
-            // 绘制表头
-            let rank_text = "排名";
-            let name_text = "玩家名称";
-            let score_text = "分数";
-            
-            let column_width = width / 3.0;
-            // 使用draw_chinese_text绘制表头
-            draw_chinese_text(rank_text, width * 0.15, start_y, font_size, WHITE);
-            draw_chinese_text(name_text, width * 0.35, start_y, font_size, WHITE);
-            draw_chinese_text(score_text, width * 0.65, start_y, font_size, WHITE);
-            
-            // 绘制分割线
-            draw_line(width * 0.1, start_y + font_size * 0.5, width * 0.9, start_y + font_size * 0.5, 2.0, // * dpi_scale, (Removed)
-                      GRAY); // 应用DPI缩放
-            
-            // 绘制排行榜数据
-            for (i, rank) in leaderboard.iter().enumerate() {
-                let row_y = start_y + line_height * (i as f32 + 1.0);
-                
-                // 绘制排名
-                let rank_display = format!("{}", i + 1);
-                // 使用draw_chinese_text绘制排名（虽然是数字，但保持一致性）
-                draw_chinese_text(&rank_display, width * 0.15, row_y, font_size, WHITE);
-                
-                // 绘制玩家名称
-                // 使用draw_chinese_text绘制玩家名称
-                draw_chinese_text(&rank.name, width * 0.35, row_y, font_size, WHITE);
-                
-                // 绘制分数
-                let score_display = format!("{}", rank.score);
-                // 使用draw_chinese_text绘制分数
-                draw_chinese_text(&score_display, width * 0.65, row_y, font_size, WHITE);
-            }
-        }
-    }
-    
-    // 绘制返回按钮
-    let button_width = 200.0; // * dpi_scale; // 应用DPI缩放 (Removed)
-    let button_height = 50.0; // * dpi_scale; // 应用DPI缩放 (Removed)
-    let button_x = width / 2.0 - button_width / 2.0;
-    let button_y = height * 0.8;
-    
-    let button_color = if is_mouse_in_rect(button_x, button_y, button_width, button_height) {
-        if is_mouse_button_down(MouseButton::Left) {
-            DARKGRAY
-        } else {
-            LIGHTGRAY
-        }
-    } else {
-        GRAY
-    };
-    
-    draw_rectangle(button_x, button_y, button_width, button_height, button_color);
-    
-    let font_size = 24.0; // * dpi_scale; // 应用DPI缩放 (Removed)
-    let button_text = "返回主菜单";
-    // 使用draw_chinese_text绘制按钮文本
-    draw_chinese_text(button_text, 
-                      button_x + button_width / 2.0, 
-                      button_y + button_height / 2.0, // 调整Y坐标以垂直居中
-                      font_size, 
-                      BLACK);
-    
-    // 检测按钮点击
-    if is_mouse_button_released(MouseButton::Left) && is_mouse_in_rect(button_x, button_y, button_width, button_height) {
+    let back_button_size = 30.0;
+    let back_button_padding = 15.0;
+    let back_button_x = width - back_button_size - back_button_padding;
+    let back_button_y = back_button_padding;
+    let back_button_rect = Rect::new(back_button_x, back_button_y, back_button_size, back_button_size);
+    let back_icon_text = "返回";
+    let back_icon_font_size = 20.0;
+    draw_chinese_text(back_icon_text, back_button_rect.center().x, back_button_rect.center().y + back_icon_font_size * 0.1, back_icon_font_size, LIGHTGRAY);
+
+    if is_mouse_button_released(MouseButton::Left) && back_button_rect.contains(mouse_position().into()) {
         game.start_transition(GameState::MainMenu);
+    }
+
+    if !game.show_leaderboard_button || game.is_leaderboard_loading {
+        let status_text_y = height * 0.5; 
+        let status_font_size = 22.0;
+        let loading_details_font_size = 16.0;
+
+        if game.is_leaderboard_loading {
+            draw_chinese_text("正在加载排行榜...", width / 2.0, status_text_y - 20.0, status_font_size, SKYBLUE);
+            let dot_radius = 5.0;
+            let dot_spacing = 20.0;
+            let animation_speed = 2.0;
+            let current_time = get_time() as f32;
+            for i in 0..3 {
+                let delay = i as f32 * 0.3;
+                let scale = ((current_time * animation_speed + delay).sin() * 0.5 + 0.5).max(0.3);
+                let alpha = scale;
+                draw_circle(
+                    width / 2.0 - dot_spacing + (i as f32 * dot_spacing),
+                    status_text_y + 20.0, 
+                    dot_radius * scale,
+                    Color::new(SKYBLUE.r, SKYBLUE.g, SKYBLUE.b, alpha)
+                );
+            }
+            draw_chinese_text("请稍候", width / 2.0, status_text_y + 50.0, loading_details_font_size, GRAY);
+        } else {
+            draw_chinese_text("无法连接排行榜服务", width / 2.0, status_text_y - 15.0, status_font_size, ORANGE);
+            draw_chinese_text("请检查网络连接或稍后再试", width / 2.0, status_text_y + 15.0, loading_details_font_size, GRAY);
+        }
+    } else {
+        let header_text_y_center = week_range_y_center + (week_range_font_size / 2.0) + (header_font_size / 2.0) + padding_section;
+        let line_below_header_y = header_text_y_center + (header_font_size / 2.0) + padding_general;
+        let entries_area_top_y = line_below_header_y + padding_general;
+
+        let rank_center_x = width * 0.18;
+        let name_left_x = width * 0.30;
+        let score_right_x = width * 0.85;
+
+        let leaderboard = &game.leaderboard_data;
+
+        if leaderboard.is_empty() && !game.is_leaderboard_loading {
+            draw_chinese_text("排行榜暂无数据", width / 2.0, height / 2.0, 24.0, WHITE);
+        } else {
+            draw_chinese_text("排名", rank_center_x, header_text_y_center, header_font_size, GRAY);
+            let player_header_text = "玩家";
+            // Pass None for font to measure_text to avoid locking CHINESE_FONT here
+            let player_header_dims = measure_text(player_header_text, None, header_font_size as u16, 1.0);
+            draw_chinese_text(player_header_text, name_left_x + player_header_dims.width / 2.0, header_text_y_center, header_font_size, GRAY);
+            let score_header_text = "分数";
+            // Pass None for font to measure_text
+            let score_header_dims = measure_text(score_header_text, None, header_font_size as u16, 1.0);
+            draw_chinese_text(score_header_text, score_right_x - score_header_dims.width / 2.0, header_text_y_center, header_font_size, GRAY);
+            
+            draw_line(width * 0.05, line_below_header_y, width * 0.95, line_below_header_y, 1.5, Color::new(0.5,0.5,0.5,0.7));
+
+            for (i, rank_entry) in leaderboard.iter().take(10).enumerate() {
+                let current_row_top_y = entries_area_top_y + (i as f32 * row_height);
+                let current_row_center_y_for_text = current_row_top_y + (row_height / 2.0);
+                
+                let is_player_self = game.player_rank.as_ref().map_or(false, |pr| pr.name == rank_entry.name && pr.score == rank_entry.score);
+                let row_bg_color = if is_player_self { Color::new(0.1, 0.2, 0.3, 0.7) } else { Color::new(0.0,0.0,0.0,0.0) };
+                if is_player_self {
+                    draw_rectangle(width * 0.05, current_row_top_y, width * 0.9, row_height, row_bg_color);
+                }
+
+                draw_chinese_text(&format!("{}", i + 1), rank_center_x, current_row_center_y_for_text, entry_font_size, WHITE);
+                
+                let mut player_name_display = rank_entry.name.clone();
+                let max_name_render_width = score_right_x - name_left_x - (width*0.05);
+                let approx_char_width = entry_font_size * 0.7; 
+                let max_chars = (max_name_render_width / approx_char_width).floor() as usize;
+                if player_name_display.chars().count() > max_chars && max_chars > 3 {
+                    player_name_display = player_name_display.chars().take(max_chars.saturating_sub(1)).collect::<String>() + "...";
+                }
+                // Pass None for font to measure_text for width calculation
+                let player_name_width = measure_text(&player_name_display, None, entry_font_size as u16, 1.0).width;
+                draw_chinese_text(&player_name_display, name_left_x + player_name_width/2.0 , current_row_center_y_for_text, entry_font_size, WHITE);
+                
+                let score_display = format!("{}", rank_entry.score);
+                // Pass None for font to measure_text for width calculation
+                let score_display_dims = measure_text(&score_display, None, entry_font_size as u16, 1.0);
+                draw_chinese_text(&score_display, score_right_x - score_display_dims.width / 2.0, current_row_center_y_for_text, entry_font_size, GOLD);
+            }
+
+            if let Some(player_rank) = &game.player_rank {
+                 let player_is_in_top_10 = leaderboard.iter().any(|entry| entry.name == player_rank.name && entry.score == player_rank.score);
+                 if !player_is_in_top_10 && player_rank.rank > 0 {
+                    let num_displayed_entries = leaderboard.len().min(10);
+                    let player_rank_area_top_y = entries_area_top_y + (num_displayed_entries as f32 * row_height) + padding_general; 
+                    let player_rank_text_y_center = player_rank_area_top_y + (18.0 / 2.0) + 5.0;
+
+                    draw_line(width*0.05, player_rank_area_top_y - (padding_general / 2.0) , width*0.95, player_rank_area_top_y - (padding_general / 2.0), 1.0, Color::new(0.5,0.5,0.5,0.3));
+                    
+                    let your_rank_text = format!("您的排名: {}", player_rank.rank);
+                    // Pass None for font to measure_text
+                    let your_rank_dims = measure_text(&your_rank_text, None, 18.0 as u16, 1.0);
+                    draw_chinese_text(&your_rank_text, name_left_x + your_rank_dims.width / 2.0, player_rank_text_y_center, 18.0, LIGHTGRAY);
+                    
+                    let your_score_text = format!("分数: {}", player_rank.score);
+                    // Pass None for font to measure_text
+                    let your_score_dims = measure_text(&your_score_text, None, 18.0 as u16, 1.0);
+                    draw_chinese_text(&your_score_text, score_right_x - your_score_dims.width / 2.0, player_rank_text_y_center, 18.0, LIGHTGRAY);
+                 }
+            }
+        }
     }
 }
 
@@ -878,13 +907,9 @@ fn draw_game(game: &mut Game) {
     // --- 绘制 WaveManager 状态信息 ---
     let wave_phase = game.wave_manager.get_current_phase();
     let phase_text = match wave_phase {
-        WavePhase::Accumulation => "阶段：积累",
-        WavePhase::ChallengeActive(challenge_type) => match challenge_type {
-            ChallengeType::BlockFlood => "挑战：方块潮！",
-            ChallengeType::TargetRows(_) => "挑战：消除目标行！",
-            ChallengeType::TargetCols(_) => "挑战：消除目标列！",
-        },
-        WavePhase::Relief => "阶段：缓和",
+        WavePhase::Accumulation => "阶段 - 积累",
+        WavePhase::ChallengeActive(_challenge_type) => "挑战 - 方块潮", // 挑战类型现在固定为BlockFlood
+        WavePhase::Relief => "阶段 - 缓和",
     };
     let phase_text_font_size = 18.0; // 字体大小
     let phase_text_x = screen_width() - 20.0; // 右侧边距
@@ -922,20 +947,15 @@ fn draw_game(game: &mut Game) {
     
     // 绘制游戏网格 - 需要传递 WaveManager 的目标行/列信息
     // game.grid.draw(grid_offset_x, grid_offset_y, cell_size); // 旧的调用
-    let active_targets = if let WavePhase::ChallengeActive(ChallengeType::TargetRows(_)) | WavePhase::ChallengeActive(ChallengeType::TargetCols(_)) = wave_phase {
-        Some(game.wave_manager.get_active_target_lines())
-    } else {
-        None
-    };
-    let is_target_rows = matches!(wave_phase, WavePhase::ChallengeActive(ChallengeType::TargetRows(_)));
+    // let active_targets = if let WavePhase::ChallengeActive(ChallengeType::TargetRows(_)) | WavePhase::ChallengeActive(ChallengeType::TargetCols(_)) = wave_phase {
+    //     Some(game.wave_manager.get_active_target_lines())
+    // } else {
+    //     None
+    // };
+    // let is_target_rows = matches!(wave_phase, WavePhase::ChallengeActive(ChallengeType::TargetRows(_)));
     
-    game.grid.draw_with_highlights(
-        grid_offset_x, 
-        grid_offset_y, 
-        cell_size, 
-        active_targets, // Option<&Vec<usize>>
-        is_target_rows  // bool, true if rows, false if cols (if active_targets is Some)
-    );
+    // 由于移除了目标行/列挑战，不再需要高亮逻辑
+    game.grid.draw(grid_offset_x, grid_offset_y, cell_size); 
     
     // 更新粒子效果系统
     game.effects.draw();
@@ -987,13 +1007,13 @@ fn draw_game(game: &mut Game) {
     let start_x = (screen_width() - total_width) / 2.0;
     
     // --- 绘制底部可选方块 --- 
-    for (idx, block) in game.current_blocks.iter().enumerate() { // <--- Ensure this is 'block', not '_block'
+    for (idx, block) in game.current_blocks.iter().enumerate() { // <--- 将 _block 改为 block
         let block_pos_x = start_x + block_size/2.0 + idx as f32 * (block_size + block_margin);
         let block_pos_y = blocks_y;
         
         // 检查是否是正在返回动画的块，如果是则跳过
         if let Some(anim_data) = &game.animating_block {
-            if anim_data.block_idx == idx {
+            if anim_data.block_idx == idx { 
                 continue; 
             }
         }
@@ -1127,7 +1147,6 @@ fn draw_game(game: &mut Game) {
             let btn_width = 220.0; // * dpi_scale; (Removed)
             let btn_height = 55.0; // * dpi_scale; (Removed)
             let btn_spacing = 20.0; // * dpi_scale; (Removed)
-            let total_btn_height = btn_height * 2.0 + btn_spacing;
             let btn_start_y = title_y + 100.0; // * dpi_scale; // 在标题下方留出更多空间 (Removed)
 
             // 开始游戏按钮位置
@@ -1220,24 +1239,22 @@ fn draw_game(game: &mut Game) {
 
             // GameOver状态下显示排行榜按钮
             if game.show_leaderboard_button {
-                // let dpi_scale = get_dpi_scale(); // (Removed)
-                let btn_width = 200.0; // * dpi_scale; // 应用DPI (Removed)
-                let btn_height = 40.0; // * dpi_scale; // 应用DPI (Removed)
+                let btn_width = 200.0;
+                let btn_height = 40.0;
                 let btn_x = screen_width() / 2.0 - btn_width / 2.0;
-                let btn_y = screen_height() / 2.0 + 100.0; // 统一按钮位置
+                let btn_y = screen_height() * 0.7; // 从底部向上30%的位置
                 let btn_rect = Rect::new(btn_x, btn_y, btn_width, btn_height);
                 
                 // 绘制按钮
                 draw_rectangle(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, DARKGRAY);
-                draw_rectangle_lines(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, 2.0, // * dpi_scale, (Removed)
-                                     WHITE); // 应用DPI
+                draw_rectangle_lines(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h, 2.0, WHITE);
                 
                 // 按钮文字
                 draw_chinese_text(
                     "查看排行榜", 
                     btn_rect.x + btn_rect.w / 2.0, 
                     btn_rect.y + btn_rect.h / 2.0, 
-                    18.0, // * dpi_scale, (Removed)
+                    18.0,
                     WHITE
                 );
                 
@@ -1246,8 +1263,8 @@ fn draw_game(game: &mut Game) {
                     draw_chinese_text(
                         "分数已上传", 
                         screen_width() / 2.0, 
-                        btn_y + btn_height + 20.0, // * dpi_scale, // 在按钮下方显示 (Removed)
-                        14.0, // * dpi_scale, (Removed)
+                        btn_y + btn_height + 20.0,
+                        14.0,
                         GREEN
                     );
                 }
@@ -1296,9 +1313,9 @@ fn update_game(game: &mut Game) {
     if is_key_pressed(KeyCode::Space) {
         // 循环切换模式
         game.game_mode = match game.game_mode {
+            GameMode::Happy => GameMode::Easy,
             GameMode::Easy => GameMode::Normal,
             GameMode::Normal => GameMode::Happy,
-            GameMode::Happy => GameMode::Easy,
         };
         log_info!("模式切换为: {:?}", game.game_mode);
     }
@@ -1364,6 +1381,7 @@ fn update_game(game: &mut Game) {
                     game.score = 0;
                     game.combo = 0;
                     game.score_uploaded = false; // 重置上传状态
+                    game.accumulated_shape_counts.clear(); // 清空累积统计
                     game.generate_blocks();
                     // 清空拖拽状态，以防万一
                     game.drag_block_idx = None;
@@ -1586,7 +1604,7 @@ fn update_game(game: &mut Game) {
                                 if can_place {
                                     placed_successfully = true;
                                     game.grid.place_block(block, corrected_x, corrected_y);
-                                    trigger_vibration_on_place(50);
+                                    // trigger_vibration_on_place(5); // <-- 移除旧的震动调用
                                     
                                     // --- WaveManager 回合推进和奖励获取 ---
                                     let score_bonus_from_wave = game.wave_manager.increment_turn();
@@ -1603,6 +1621,35 @@ fn update_game(game: &mut Game) {
                                     
                                     let (cleared_row_indices, cleared_col_indices) = game.grid.check_and_clear();
                                     let cleared_count = cleared_row_indices.len() + cleared_col_indices.len();
+
+                                    // --- 新的震动和特效逻辑 ---
+                                    if cleared_count > 1 {
+                                        // 多行消除：强特效和长震动
+                                        // game.effects.show_screen_flash(GOLD, 0.25); // <-- 移除全屏闪光
+                                        trigger_vibration_on_place(20);
+                                        
+                                        let text_to_show = format!("X {}", cleared_count);
+                                        // 计算网格中心位置作为特效出现点
+                                        let grid_size = screen_width() * 0.9;
+                                        let grid_offset_y = screen_height() * 0.15; // 使用一个简化的Y偏移估算
+                                        let effect_pos = Vec2::new(screen_width() / 2.0, grid_offset_y + grid_size / 2.0);
+                                        
+                                        game.effects.show_floating_text(
+                                            text_to_show,
+                                            effect_pos,
+                                            WHITE, // 使用白色，与闪光背景形成对比
+                                            60.0,  // <-- 将字体大小从 48.0 增加到 60.0
+                                            1.5    // 持续1.5秒
+                                        );
+                                        // --- 结束 ---
+
+                                    } else if cleared_count == 1 {
+                                        // 单行消除：中等震动
+                                        trigger_vibration_on_place(10);
+                                    } else {
+                                        // 仅放置，无消除：短震动
+                                        trigger_vibration_on_place(5);
+                                    }
                                     
                                     if cleared_count > 0 {
                                         for &index in &cleared_row_indices {
@@ -1613,28 +1660,54 @@ fn update_game(game: &mut Game) {
                                         }
                                         log_info!("Lines cleared ({}) - Notified WaveManager", cleared_count);
                                         
-                                        // 特效 - 需要使用索引来精确定位
-                                        let effect_color = Color::new(1.0, 0.843, 0.0, 1.0); // Gold color for clear
-                                        for &y in &cleared_row_indices {
-                                            for x in 0..8 {
-                                                let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0;
-                                                let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0;
-                                                game.effects.show_clear_effect(effect_x, effect_y, effect_color);
+                                        // --- 新的、区分强度的局部特效 ---
+                                        let effect_color = GOLD; // 统一使用金色
+                                        
+                                        let grid_size = screen_width() * 0.9;
+                                        let cell_size = grid_size / 8.0;
+                                        let grid_offset_x = (screen_width() - grid_size) / 2.0;
+                                        // 确保这里的 grid_offset_y 与 draw_game 中的一致
+                                        let aspect_ratio = screen_width() / screen_height();
+                                        let is_tall_screen = aspect_ratio < 0.5;
+                                        let is_wide_screen = aspect_ratio > 0.8;
+                                        let grid_offset_y = if is_tall_screen {
+                                            screen_height() * 0.22
+                                        } else if is_wide_screen {
+                                            screen_height() * 0.12
+                                        } else {
+                                            screen_height() * 0.15
+                                        };
+
+                                        // 根据消除行数决定使用哪个特效函数
+                                        let effect_fn = if cleared_count > 1 {
+                                            Effects::show_multi_clear_effect
+                                        } else {
+                                            Effects::show_clear_effect
+                                        };
+
+                                        for &y_idx in &cleared_row_indices {
+                                            for x_idx in 0..8 {
+                                                let effect_x = grid_offset_x + x_idx as f32 * cell_size + cell_size / 2.0;
+                                                let effect_y = grid_offset_y + y_idx as f32 * cell_size + cell_size / 2.0;
+                                                effect_fn(&mut game.effects, effect_x, effect_y, effect_color);
                                             }
                                         }
-                                        for &x in &cleared_col_indices {
-                                             // Avoid double effects for intersection cells
-                                             for y in 0..8 {
-                                                 // Check if this cell was already part of a cleared row
-                                                 if !cleared_row_indices.contains(&y) {
-                                                    let effect_x = grid_offset_x + x as f32 * cell_size + cell_size/2.0;
-                                                    let effect_y = grid_offset_y + y as f32 * cell_size + cell_size/2.0;
-                                                    game.effects.show_clear_effect(effect_x, effect_y, effect_color);
-                                                 }
-                                             }
+                                        for &x_idx in &cleared_col_indices {
+                                            for y_idx in 0..8 {
+                                                // 避免在行列交叉点重复产生特效
+                                                if !cleared_row_indices.contains(&y_idx) {
+                                                    let effect_x = grid_offset_x + x_idx as f32 * cell_size + cell_size / 2.0;
+                                                    let effect_y = grid_offset_y + y_idx as f32 * cell_size + cell_size / 2.0;
+                                                    effect_fn(&mut game.effects, effect_x, effect_y, effect_color);
+                                                }
+                                            }
                                         }
                                         
-                                        if game.combo >= 2 { let combo_x = screen_width() / 2.0; let combo_y = grid_offset_y + grid_size / 2.0; game.effects.show_combo_effect(game.combo, combo_x, combo_y); }
+                                        if game.combo >= 2 { 
+                                            let combo_x = screen_width() / 2.0; 
+                                            let combo_y = grid_offset_y + grid_size / 2.0; 
+                                            game.effects.show_combo_effect(game.combo, combo_x, combo_y); 
+                                        }
                                         
                                         // 分数和连击
                                         game.combo += 1;
@@ -1728,6 +1801,8 @@ fn update_game(game: &mut Game) {
                     // 点击其他区域则重新开始
                     game.start_transition(GameState::Menu); // 返回菜单而不是直接开始游戏
                     // 游戏状态的重置将在进入Menu或Playing状态时处理
+                    // 清空累积统计也应该在这里，如果从 GameOver 直接到 Menu 再到 Playing
+                    game.accumulated_shape_counts.clear(); 
                 }
             }
         },
@@ -2026,35 +2101,11 @@ async fn run_game() {
         let jit_status_text = &get_wasm_jit_status();
 
         // 使用 draw_text (默认左对齐) 绘制
-        draw_text(jit_status_text, 10.0, 55.0, 18.0, Color::new(0.0, 1.0, 1.0, 1.0)); // 青色
+        // draw_text(jit_status_text, 10.0, 55.0, 18.0, Color::new(0.0, 1.0, 1.0, 1.0)); // 青色
         // --- 绘制代码结束 ---
         
         // 等待下一帧
         next_frame().await;
-
-        // 在run_game函数内的适当位置添加键盘快捷键支持，可以放在主循环中其他输入处理之后
-
-        // 测试消息系统的键盘快捷键
-        if is_key_pressed(KeyCode::F1) {
-            show_debug!("F1键测试 - 调试消息");
-        }
-        if is_key_pressed(KeyCode::F2) {
-            show_info!("F2键测试 - 信息消息");
-        }
-        if is_key_pressed(KeyCode::F3) {
-            show_warn!("F3键测试 - 警告消息");
-        }
-        if is_key_pressed(KeyCode::F4) {
-            show_error!("F4键测试 - 错误消息");
-        }
-        if is_key_pressed(KeyCode::F5) {
-            // 测试多条消息
-            show_debug!("测试多条消息 1/5");
-            show_info!("测试多条消息 2/5");
-            show_warn!("测试多条消息 3/5");
-            show_error!("测试多条消息 4/5");
-            show_info!("测试多条消息 5/5 - 完成");
-        }
     }
 }
 
@@ -2062,6 +2113,11 @@ async fn run_game() {
 fn draw_main_menu(game: &mut Game) {
     // 清屏为深蓝色背景 #3C569E - 匹配全局设计
     clear_background(COLOR_PRIMARY);
+    
+    // 添加渐变背景效果
+    let top_color = Color::new(40.0/255.0, 72.0/255.0, 160.0/255.0, 1.0);    //rgb(40, 72, 160) 较深的蓝色
+    let bottom_color = Color::new(68.0/255.0, 118.0/255.0, 226.0/255.0, 1.0);  //rgb(68, 118, 226)  较亮的蓝色
+    drawing::draw_vertical_gradient(0.0, 0.0, screen_width(), screen_height(), top_color, bottom_color);
     
     let width = screen_width();
     let height = screen_height();
@@ -2113,8 +2169,24 @@ fn draw_main_menu(game: &mut Game) {
     let button_height = 60.0;
     let button_x = center_x - button_width / 2.0;
     
-    // 开始游戏按钮 - Y轴位置调整为在标题下方 (移除了副标题)
-    let start_button_y = title_layout_bottom_y + 100.0; // 在标题下方留出合适的间距
+    // 按钮间距
+    let button_spacing = 20.0;
+    
+    // 计算按钮区域的总高度
+    let buttons_total_height = button_height * 2.0 + button_spacing;
+    
+    // 让按钮位于屏幕下半部分的中心位置
+    // 首先计算屏幕下半部分的高度和中心
+    let bottom_half_start = height * 0.5;
+    let bottom_half_height = height - bottom_half_start;
+    let bottom_half_center = bottom_half_start + bottom_half_height * 0.2;
+    
+    // 将按钮组居中放置在下半部分
+    let buttons_start_y = bottom_half_center - buttons_total_height * 0.5;
+
+    
+    // 开始游戏按钮 - 现在相对于下半部分计算
+    let start_button_y = buttons_start_y;
     let start_button_rect = Rect::new(button_x, start_button_y, button_width, button_height);
     
     // 绘制开始游戏按钮（蓝色）
@@ -2147,7 +2219,7 @@ fn draw_main_menu(game: &mut Game) {
     );
     
     // 排行榜按钮
-    let leaderboard_button_y = start_button_y + button_height + 20.0; // * dpi_scale; (Removed)
+    let leaderboard_button_y = start_button_y + button_height + button_spacing;
     let leaderboard_button_rect = Rect::new(button_x, leaderboard_button_y, button_width, button_height);
     
     // 绘制排行榜按钮（深色带边框）- 始终保持可点击状态

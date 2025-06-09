@@ -2,12 +2,14 @@
 use macroquad::prelude::*;
 use crate::GameMode; // 导入 GameMode
 // 不再需要使用我们的自定义随机数生成器
+use crate::log_info; // <--- 添加导入
 
 // --- Base Shape Definitions ---
 // Using &'static [(i32, i32)] for efficiency
 // 公开一些基础形状，以便 grid.rs 可以引用它们进行匹配
 pub const SHAPE_DOT: &[(i32, i32)] = &[(0, 0)];
 pub const SHAPE_H2: &[(i32, i32)] = &[(0, 0), (1, 0)];
+pub const SHAPE_L_SMALL: &[(i32, i32)] = &[(0, 0), (1, 0), (1, 1)];
 const SHAPE_DG: &[(i32, i32)] = &[(0, 0), (1, 1)]; 
 pub const SHAPE_H3: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0)];
 pub const SHAPE_I: &[(i32, i32)] = &[(0, 0), (1, 0), (2, 0), (3, 0)];
@@ -22,56 +24,66 @@ const SHAPE_L_LARGE: &[(i32, i32)] = &[(0, 0), (0, 1), (0, 2), (1, 0), (2, 0)]; 
 const SHAPE_STAIR: &[(i32, i32)] = &[(0, 0), (1, 0), (0, 1), (1, 1), (2, 1)]; // 阶梯形
 
 // --- Pool Entry Definition ---
-#[derive(Clone)] // Added Clone for potential future use if needed
+#[derive(Clone)]
 struct PoolEntry {
-    shape_ref: &'static [(i32, i32)], // Reference to the base shape
-    weight: u32,                    // Generation weight
+    shape_ref: &'static [(i32, i32)],
+    shape_name: &'static str, // 新增：形状名称，用于统计
+    weight: u32,
 }
 
 // --- Mode Pool Definitions ---
 // Weights are relative probabilities within each pool
-const EASY_POOL: &[PoolEntry] = &[
-    PoolEntry { shape_ref: SHAPE_DOT, weight: 2 },
-    PoolEntry { shape_ref: SHAPE_H2, weight: 5 },
-    PoolEntry { shape_ref: SHAPE_O, weight: 10 },
-    PoolEntry { shape_ref: SHAPE_I, weight: 10 },
-    PoolEntry { shape_ref: SHAPE_H3, weight: 6 },
-    PoolEntry { shape_ref: SHAPE_L, weight: 8 },
-    PoolEntry { shape_ref: SHAPE_T, weight: 2 },
-    PoolEntry { shape_ref: SHAPE_Z, weight: 2 },
+const HAPPY_POOL: &[PoolEntry] = &[
+    PoolEntry { shape_ref: SHAPE_DOT, shape_name: "SHAPE_DOT", weight: 2 },
+    PoolEntry { shape_ref: SHAPE_H2, shape_name: "SHAPE_H2", weight: 5 },
+    PoolEntry { shape_ref: SHAPE_O, shape_name: "SHAPE_O", weight: 10 },
+    PoolEntry { shape_ref: SHAPE_I, shape_name: "SHAPE_I", weight: 10 },
+    PoolEntry { shape_ref: SHAPE_H3, shape_name: "SHAPE_H3", weight: 6 },
+    PoolEntry { shape_ref: SHAPE_L, shape_name: "SHAPE_L", weight: 8 },
+    PoolEntry { shape_ref: SHAPE_T, shape_name: "SHAPE_T", weight: 2 },
+    PoolEntry { shape_ref: SHAPE_Z, shape_name: "SHAPE_Z", weight: 2 },
     // Lower probability for larger/complex shapes in easy mode
 ];
 
-const NORMAL_POOL: &[PoolEntry] = &[
-    PoolEntry { shape_ref: SHAPE_DOT, weight: 3 }, 
-    PoolEntry { shape_ref: SHAPE_H2, weight: 5 },
-    PoolEntry { shape_ref: SHAPE_O, weight: 10 },
-    PoolEntry { shape_ref: SHAPE_I, weight: 8 },
-    PoolEntry { shape_ref: SHAPE_H3, weight: 7 },
-    PoolEntry { shape_ref: SHAPE_L, weight: 9 },
-    PoolEntry { shape_ref: SHAPE_T, weight: 9 },
-    PoolEntry { shape_ref: SHAPE_Z, weight: 8 },
-    PoolEntry { shape_ref: SHAPE_STAIR, weight: 5 },
-    PoolEntry { shape_ref: SHAPE_L_LARGE, weight: 4 },
-    PoolEntry { shape_ref: SHAPE_CROSS, weight: 3 },
-    PoolEntry { shape_ref: SHAPE_RECT_2X3, weight: 4 },
-    PoolEntry { shape_ref: SHAPE_SQUARE_3X3, weight: 3 },
+const EASY_POOL: &[PoolEntry] = &[
+    PoolEntry { shape_ref: SHAPE_DOT, shape_name: "SHAPE_DOT", weight: 3 }, 
+    PoolEntry { shape_ref: SHAPE_H2, shape_name: "SHAPE_H2", weight: 5 },
+    PoolEntry { shape_ref: SHAPE_O, shape_name: "SHAPE_O", weight: 10 },
+    PoolEntry { shape_ref: SHAPE_I, shape_name: "SHAPE_I", weight: 8 },
+    PoolEntry { shape_ref: SHAPE_H3, shape_name: "SHAPE_H3", weight: 7 },
+    PoolEntry { shape_ref: SHAPE_L, shape_name: "SHAPE_L", weight: 9 },
+    PoolEntry { shape_ref: SHAPE_T, shape_name: "SHAPE_T", weight: 9 },
+    PoolEntry { shape_ref: SHAPE_Z, shape_name: "SHAPE_Z", weight: 8 },
+    PoolEntry { shape_ref: SHAPE_STAIR, shape_name: "SHAPE_STAIR", weight: 5 },
+    PoolEntry { shape_ref: SHAPE_L_LARGE, shape_name: "SHAPE_L_LARGE", weight: 4 },
+    PoolEntry { shape_ref: SHAPE_CROSS, shape_name: "SHAPE_CROSS", weight: 3 },
+    PoolEntry { shape_ref: SHAPE_RECT_2X3, shape_name: "SHAPE_RECT_2X3", weight: 4 },
+    PoolEntry { shape_ref: SHAPE_SQUARE_3X3, shape_name: "SHAPE_SQUARE_3X3", weight: 3 },
 ];
 
-const HAPPY_POOL: &[PoolEntry] = &[
-    PoolEntry { shape_ref: SHAPE_DOT, weight: 1 }, 
-    PoolEntry { shape_ref: SHAPE_H2, weight: 5 },
-    PoolEntry { shape_ref: SHAPE_O, weight: 10 },
-    PoolEntry { shape_ref: SHAPE_I, weight: 10 },
-    PoolEntry { shape_ref: SHAPE_H3, weight: 7 },
-    PoolEntry { shape_ref: SHAPE_L, weight: 7 },
-    PoolEntry { shape_ref: SHAPE_T, weight: 7 },
-    PoolEntry { shape_ref: SHAPE_Z, weight: 8 },
-    PoolEntry { shape_ref: SHAPE_STAIR, weight: 5 },
-    PoolEntry { shape_ref: SHAPE_L_LARGE, weight: 4 },
-    PoolEntry { shape_ref: SHAPE_RECT_2X3, weight: 4 },
-    PoolEntry { shape_ref: SHAPE_SQUARE_3X3, weight: 2 },
+const NORMAL_POOL: &[PoolEntry] = &[
+    PoolEntry { shape_ref: SHAPE_DOT, shape_name: "SHAPE_DOT", weight: 2 }, 
+    PoolEntry { shape_ref: SHAPE_H2, shape_name: "SHAPE_H2", weight: 5 },
+    PoolEntry { shape_ref: SHAPE_L_SMALL, shape_name: "SHAPE_L_SMALL", weight: 2 },
+    PoolEntry { shape_ref: SHAPE_O, shape_name: "SHAPE_O", weight: 32 },
+    PoolEntry { shape_ref: SHAPE_I, shape_name: "SHAPE_I", weight: 25 },
+    PoolEntry { shape_ref: SHAPE_H3, shape_name: "SHAPE_H3", weight: 25 },  //L4 13 L5 12
+    PoolEntry { shape_ref: SHAPE_L, shape_name: "SHAPE_L", weight: 24 },
+    PoolEntry { shape_ref: SHAPE_T, shape_name: "SHAPE_T", weight: 10 },
+    PoolEntry { shape_ref: SHAPE_Z, shape_name: "SHAPE_Z", weight: 1 },
+    PoolEntry { shape_ref: SHAPE_STAIR, shape_name: "SHAPE_STAIR", weight: 4 },
+    PoolEntry { shape_ref: SHAPE_L_LARGE, shape_name: "SHAPE_L_LARGE", weight: 20 },
+    PoolEntry { shape_ref: SHAPE_CROSS, shape_name: "SHAPE_CROSS", weight: 1 },
+    PoolEntry { shape_ref: SHAPE_RECT_2X3, shape_name: "SHAPE_RECT_2X3", weight: 11 },
+    PoolEntry { shape_ref: SHAPE_SQUARE_3X3, shape_name: "SHAPE_SQUARE_3X3", weight: 2 },
 ];
+
+// 新增：定义一个默认的 PoolEntry 用于 fallback
+const DEFAULT_POOL_ENTRY: PoolEntry = PoolEntry { 
+    shape_ref: SHAPE_DOT, 
+    shape_name: "SHAPE_DOT", 
+    weight: 1 
+};
 
 // 内部辅助函数：顺时针旋转90度
 pub fn rotate_90_clockwise(cells: &[(i32, i32)]) -> Vec<(i32, i32)> {
@@ -92,10 +104,11 @@ pub fn normalize_cells(cells: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
 }
 
 // 定义不同形状的方块
-#[derive(Debug, Clone)] // Added Debug and Clone
+#[derive(Debug, Clone)]
 pub struct BlockShape {
     pub cells: Vec<(i32, i32)>,
     pub color: Color,
+    pub base_shape_name: &'static str, // 新增：用于统计的基础形状名称
 }
 
 // 公共函数：获取一个随机的方块颜色
@@ -114,30 +127,34 @@ pub fn get_random_block_color() -> Color {
 }
 
 impl BlockShape {
-    // Selects a shape based on weights from a single pool
-    fn select_weighted_shape(pool: &[PoolEntry]) -> &'static [(i32, i32)] {
+    fn select_weighted_shape_entry(pool: &'static [PoolEntry]) -> &'static PoolEntry { // 明确要求 pool 是 'static
+        if pool.is_empty() { 
+            return &DEFAULT_POOL_ENTRY;
+        }
+
         let total_weight: u32 = pool.iter().map(|entry| entry.weight).sum();
         if total_weight == 0 {
-            // Fallback if pool is empty or weights are all zero
-            return SHAPE_DOT; 
+            return &DEFAULT_POOL_ENTRY; 
         }
-        let mut roll = macroquad::rand::gen_range(0, total_weight); // roll in [0, total_weight - 1]
+        let mut roll = macroquad::rand::gen_range(0, total_weight);
 
-        for entry in pool {
+        for entry in pool { // 因为 pool 是 &'static，所以 entry 也是 &'static PoolEntry
             if roll < entry.weight {
-                return entry.shape_ref;
+                return entry; 
             }
             roll -= entry.weight;
         }
-        // Should not be reached if total_weight > 0, but as a safeguard:
-        pool.last().map(|entry| entry.shape_ref).unwrap_or(SHAPE_DOT)
+        // 此处理论上不应到达，因为 total_weight > 0 且 roll 应该落在某个区间
+        // 但为防万一，返回默认值
+        &DEFAULT_POOL_ENTRY
     }
 
     /// Creates a new 1x1 dot block shape.
     pub fn new_dot() -> Self {
         BlockShape {
-            cells: SHAPE_DOT.to_vec(), // SHAPE_DOT is already normalized (0,0)
-            color: get_random_block_color(), // 使用新的公共颜色函数
+            cells: SHAPE_DOT.to_vec(),
+            color: get_random_block_color(),
+            base_shape_name: "SHAPE_DOT", 
         }
     }
 
@@ -167,7 +184,7 @@ impl BlockShape {
             }
         }
         // Add entries from NORMAL_POOL, scaled by normal_weight
-        for entry in NORMAL_POOL {
+        for (idx, entry) in NORMAL_POOL.iter().enumerate() {
             let weight = entry.weight as f32 * normal_weight;
             if weight > 0.0 {
                 weighted_entries.push((entry.shape_ref, weight));
@@ -175,7 +192,7 @@ impl BlockShape {
             }
         }
         // Add entries from HAPPY_POOL, scaled by happy_weight
-        for entry in HAPPY_POOL {
+        for (idx, entry) in HAPPY_POOL.iter().enumerate() {
             let weight = entry.weight as f32 * happy_weight;
             if weight > 0.0 {
                 weighted_entries.push((entry.shape_ref, weight));
@@ -215,33 +232,31 @@ impl BlockShape {
         BlockShape {
             cells: final_cells,
             color: get_random_block_color(), // 使用新的公共颜色函数
+            base_shape_name: "SHAPE_H3", // 直接指定名称
         }
     }
 
-    // Keep generate_for_mode for now, maybe for specific scenarios or testing
     pub fn generate_for_mode(mode: GameMode) -> Self {
-        let pool = match mode {
+        let pool: &'static [PoolEntry] = match mode { // 明确 pool 的类型是 &'static [PoolEntry]
             GameMode::Easy => EASY_POOL,
             GameMode::Normal => NORMAL_POOL,
             GameMode::Happy => HAPPY_POOL,
         };
-        let base_shape_cells = Self::select_weighted_shape(pool);
+        let selected_entry = Self::select_weighted_shape_entry(pool);
+        let base_shape_cells = selected_entry.shape_ref;
+        let base_shape_name = selected_entry.shape_name;
 
-        let mut current_cells = base_shape_cells.to_vec(); // Clone the base shape
-
-        // Apply random rotation
+        let mut current_cells = base_shape_cells.to_vec();
         let num_rotations = macroquad::rand::gen_range(0, 4);
         for _ in 0..num_rotations {
             current_cells = rotate_90_clockwise(&current_cells);
         }
-
-        // Normalize coordinates after rotation
         let final_cells = normalize_cells(current_cells);
 
-        // Select a random color (same logic as before)
         BlockShape {
             cells: final_cells,
-            color: get_random_block_color(), // 使用新的公共颜色函数
+            color: get_random_block_color(),
+            base_shape_name, 
         }
     }
 } 

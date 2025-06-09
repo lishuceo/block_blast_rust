@@ -3,7 +3,9 @@
 // 修改日志宏的导入方式
 use crate::{log_debug, log_info, log_warn}; 
 // 导入随机数工具 (假设存在 random 模块)
-use crate::random; // 确保 random 模块存在并包含 get_rand_range
+// use crate::random; // 确保 random 模块存在并包含 get_rand_range
+use macroquad::rand; // 使用 macroquad 的随机数生成器
+use crate::GameMode;
 
 /// 表示当前的波次阶段
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -17,9 +19,8 @@ pub enum WavePhase {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ChallengeType {
     BlockFlood,         // 方块潮
-    TargetRows(u8),     // 精准消除行任务 (目标数量) - 简化：只存数量
-    TargetCols(u8),     // 精准消除列任务 (目标数量) - 简化：只存数量
-    // HighValueBlocks, // 待添加
+    // TargetRows(u8),     // 精准消除行任务 (目标数量) - 简化：只存数量
+    // TargetCols(u8),     // 精准消除列任务 (目标数量) - 简化：只存数量
 }
 
 /// 负责管理游戏波次、难度和挑战状态
@@ -39,17 +40,16 @@ pub struct WaveManager {
     pub block_complexity_factor: f32,
     
     // --- 挑战特定状态 ---
-    // 注意：实际的障碍物/目标列表由 Grid 或 Game 管理，这里只存触发状态或计数
-    active_target_lines: Vec<usize>, // 存储当前激活的目标行/列索引
-    target_lines_cleared_count: u32,  // 本次挑战已清除的目标数量
-    required_targets_for_success: u8, // 新增：记录当前目标挑战需要完成的数量
+    // active_target_lines: Vec<usize>, // 存储当前激活的目标行/列索引 - REMOVED
+    // target_lines_cleared_count: u32,  // 本次挑战已清除的目标数量 - REMOVED
+    // required_targets_for_success: u8, // 新增：记录当前目标挑战需要完成的数量 - REMOVED
 
     pending_score_bonus: u32, // <--- 新增：待处理的奖励分数
 }
 
 // 定义奖励常量
-const SCORE_BONUS_PER_TARGET_LINE: u32 = 50;
-const SCORE_BONUS_TARGET_CHALLENGE_COMPLETION: u32 = 200;
+// const SCORE_BONUS_PER_TARGET_LINE: u32 = 50; // REMOVED
+// const SCORE_BONUS_TARGET_CHALLENGE_COMPLETION: u32 = 200; // REMOVED
 const SCORE_BONUS_BLOCK_FLOOD_SURVIVAL: u32 = 100;
 
 impl WaveManager {
@@ -59,35 +59,33 @@ impl WaveManager {
             current_phase: WavePhase::Accumulation,
             turns_in_phase: 0,
 
-            accumulation_turns: 15,
-            challenge_active_turns: 5,
+            accumulation_turns: 20, // 保持原样或调整
+            challenge_active_turns: 5, // BlockFlood 持续回合数
             relief_turns: 3,
 
             blocks_per_generation: 3,
             block_complexity_factor: 0.1,
             
-            active_target_lines: Vec::new(),
-            target_lines_cleared_count: 0,
-            required_targets_for_success: 0, // 初始化
-            pending_score_bonus: 0, // <--- 初始化
+            // active_target_lines: Vec::new(), // REMOVED
+            // target_lines_cleared_count: 0, // REMOVED
+            // required_targets_for_success: 0, // REMOVED
+            pending_score_bonus: 0,
         }
     }
 
     /// 当玩家成功放置一个方块后调用，返回该回合产生的奖励分数
-    pub fn increment_turn(&mut self) -> u32 { // <--- 修改返回值
+    pub fn increment_turn(&mut self) -> u32 {
         self.turn_count += 1;
         self.turns_in_phase += 1;
         
         log_debug!("Turn incremented: Total={}, PhaseTurns={}", self.turn_count, self.turns_in_phase);
 
-        // 在增加回合数后立即更新阶段，这样新阶段的逻辑可以在同一帧生效
         self.update_phase(); 
-        // 然后基于可能更新后的阶段来更新难度
         self.update_difficulty(); 
 
         let bonus_to_award = self.pending_score_bonus;
-        self.pending_score_bonus = 0; // 重置待处理奖励
-        bonus_to_award // <--- 返回奖励
+        self.pending_score_bonus = 0;
+        bonus_to_award
     }
 
     /// 更新当前波次阶段
@@ -102,12 +100,11 @@ impl WaveManager {
              let next_phase = match self.current_phase {
                  WavePhase::Accumulation => {
                      let next_challenge = self.select_next_challenge();
-                     // 在转换前触发挑战开始逻辑
                      self.start_challenge(next_challenge); 
                      WavePhase::ChallengeActive(next_challenge)
                  }
                  WavePhase::ChallengeActive(_) => {
-                      self.end_challenge(); // 在转换前结束挑战
+                      self.end_challenge(); 
                       WavePhase::Relief
                  }
                  WavePhase::Relief => WavePhase::Accumulation,
@@ -120,86 +117,55 @@ impl WaveManager {
     fn transition_to(&mut self, next_phase: WavePhase) {
         log_info!("Transitioning from {:?} to {:?}", self.current_phase, next_phase);
         self.current_phase = next_phase;
-        self.turns_in_phase = 0; // 重置阶段回合计数器
-        
-        // 清理通用挑战状态
-        self.active_target_lines.clear();
-        self.target_lines_cleared_count = 0;
-        self.required_targets_for_success = 0; // 重置
+        self.turns_in_phase = 0;
+        // 清理不再需要的挑战状态
+        // self.active_target_lines.clear(); // REMOVED
+        // self.target_lines_cleared_count = 0; // REMOVED
+        // self.required_targets_for_success = 0; // REMOVED
     }
     
     /// 根据总回合数和当前阶段更新难度参数
     fn update_difficulty(&mut self) {
-        // 调整后的复杂度计算
         let base_complexity: f32 = (0.15 + self.turn_count as f32 / 60.0).min(0.7);
 
         match self.current_phase {
             WavePhase::Accumulation => {
-                self.block_complexity_factor = base_complexity * 0.5; // 积累阶段复杂度更低
+                self.block_complexity_factor = base_complexity * 0.5;
             }
             WavePhase::ChallengeActive(challenge_type) => {
                 match challenge_type {
                      ChallengeType::BlockFlood => {
                           self.block_complexity_factor = (base_complexity * 1.3).min(0.9); 
                      }
-                     ChallengeType::TargetRows(_) | ChallengeType::TargetCols(_) => {
-                          self.block_complexity_factor = base_complexity;
-                     }
+                     // TargetRows and TargetCols removed
                 }
             }
             WavePhase::Relief => {
-                self.block_complexity_factor = base_complexity * 0.4; // 缓和阶段复杂度更低
+                self.block_complexity_factor = base_complexity * 0.4;
             }
         }
         log_debug!(
             "Difficulty updated: Blocks={}, Complexity={:.2}", 
-            self.blocks_per_generation, // 仍然记录，值为3
+            self.blocks_per_generation,
             self.block_complexity_factor
         );
     }
 
     /// 选择下一个挑战类型
     fn select_next_challenge(&self) -> ChallengeType {
-        let cycle_len = self.accumulation_turns + self.challenge_active_turns + self.relief_turns;
-        if cycle_len == 0 { return ChallengeType::BlockFlood; } 
-        // 更新: 现在只有两种类型轮流 (0 和 1)
-        let challenge_index = (self.turn_count / cycle_len) % 2; 
-
-        match challenge_index {
-            0 => ChallengeType::BlockFlood,
-            _ => { // 对应之前的 1 和 2 (现在是 1)
-                 let target_count = random::gen_range(1, 3) as u8;
-                 if random::gen_range(0, 2) == 0 { 
-                     ChallengeType::TargetRows(target_count)
-                 } else {
-                     ChallengeType::TargetCols(target_count)
-                 }
-            }
-        }
+        // 既然只有 BlockFlood，直接返回
+        ChallengeType::BlockFlood
     }
     
     /// 开始挑战时的设置逻辑
     fn start_challenge(&mut self, challenge_type: ChallengeType) {
          log_info!("Starting challenge: {:?}", challenge_type);
-         
-         // 清理可能残留的状态
-         self.active_target_lines.clear();
-         self.target_lines_cleared_count = 0;
-         self.required_targets_for_success = 0; // 重置
-
          match challenge_type {
-             ChallengeType::TargetRows(count) | ChallengeType::TargetCols(count) => {
-                 self.required_targets_for_success = count; // 记录需要完成的目标数
-                 // 随机选择目标行/列索引
-                 let mut available_lines: Vec<usize> = (0..8).collect();
-                 for _ in 0..count { // 使用参数 count
-                     if available_lines.is_empty() { break; }
-                     let random_index = random::gen_range(0, available_lines.len() as i32) as usize;
-                     self.active_target_lines.push(available_lines.remove(random_index));
-                 }
-                 log_info!("Target lines challenge. Targets: {:?}, Required: {}", self.active_target_lines, self.required_targets_for_success);
+             ChallengeType::BlockFlood => {
+                 // BlockFlood 可能不需要特殊设置，或者可以在这里调整一些参数
+                 log_info!("BlockFlood challenge started.");
              }
-             ChallengeType::BlockFlood => {} // BlockFlood 可能不需要特殊设置
+             // TargetRows and TargetCols removed
          }
     }
 
@@ -208,54 +174,34 @@ impl WaveManager {
          log_info!("Ending challenge (current phase was: {:?})", self.current_phase);
          if let WavePhase::ChallengeActive(challenge_type) = self.current_phase {
              match challenge_type {
-                  ChallengeType::TargetRows(_) | ChallengeType::TargetCols(_) => {
-                      if self.target_lines_cleared_count >= self.required_targets_for_success as u32 && self.required_targets_for_success > 0 {
-                          log_info!("Target line challenge SUCCESSFUL! Cleared {}/{} targets.", self.target_lines_cleared_count, self.required_targets_for_success);
-                          self.pending_score_bonus += SCORE_BONUS_TARGET_CHALLENGE_COMPLETION; // 额外完成奖
-                          log_info!("Awarding completion bonus: {}. Total pending: {}", SCORE_BONUS_TARGET_CHALLENGE_COMPLETION, self.pending_score_bonus);
-                      } else {
-                          log_info!("Target line challenge FAILED. Cleared {}/{} targets.", self.target_lines_cleared_count, self.required_targets_for_success);
-                      }
-                  }
                   ChallengeType::BlockFlood => {
                       log_info!("BlockFlood challenge survived!");
                       self.pending_score_bonus += SCORE_BONUS_BLOCK_FLOOD_SURVIVAL;
                       log_info!("Awarding survival bonus: {}. Total pending: {}", SCORE_BONUS_BLOCK_FLOOD_SURVIVAL, self.pending_score_bonus);
                   }
+                  // TargetRows and TargetCols removed
              }
          }
     }
 
     /// 通知管理器某行/列已被清除
-    pub fn notify_line_cleared(&mut self, index: usize, is_row: bool) {
+    pub fn notify_line_cleared(&mut self, _index: usize, _is_row: bool) {
+        // 由于移除了目标挑战，此函数目前不需要做太多事情
+        // 如果未来有其他基于消除行的挑战，可以在这里添加逻辑
          if let WavePhase::ChallengeActive(challenge_type) = self.current_phase {
-             let target_match = match challenge_type {
-                 ChallengeType::TargetRows(_) => is_row,
-                 ChallengeType::TargetCols(_) => !is_row,
-                 _ => false,
-             };
-
-             if target_match && self.active_target_lines.contains(&index) {
-                 // 防止重复计数
-                 if let Some(pos) = self.active_target_lines.iter().position(|&x| x == index) {
-                      self.active_target_lines.remove(pos); // 移除已完成的目标
-                      self.target_lines_cleared_count += 1;
-                      self.pending_score_bonus += SCORE_BONUS_PER_TARGET_LINE; // 即时奖励
-                      log_info!(
-                          "Target line {} cleared! ({}/{}) Pending bonus: {}. Total pending: {}", 
-                          index, self.target_lines_cleared_count, self.required_targets_for_success, 
-                          SCORE_BONUS_PER_TARGET_LINE, self.pending_score_bonus
-                      );
-                      // TODO: 可以在此触发单行/列完成的即时奖励
-                      // TODO: Check if all targets are cleared to mark challenge success earlier?
+             match challenge_type {
+                 ChallengeType::BlockFlood => {
+                     // BlockFlood 期间的消除可能没有特殊奖励，或者可以有通用奖励
                  }
+                 // TargetRows and TargetCols removed
              }
          }
     }
     
     /// 获取当前激活的目标行/列 (用于绘制高亮)
-    pub fn get_active_target_lines(&self) -> &Vec<usize> {
-        &self.active_target_lines
+    pub fn get_active_target_lines(&self) -> Vec<usize> { // 修改返回类型以适应移除
+        // 因为不再有目标行/列，返回一个空Vec
+        Vec::new()
     }
 
     // --- 其他 Getter 方法 ---
@@ -281,44 +227,61 @@ impl WaveManager {
 
     /// 根据当前阶段和棋盘填充率，决定是否应该提供"有用"的方块
     pub fn should_offer_helpful_block(&self, grid_filled_ratio: f32) -> bool {
-        let random_chance = random::gen_range_f32(0.0, 1.0);
+        let random_chance = rand::gen_range(0.0, 1.0) as f32;
         log_info!("should_offer_helpful_block: filled_ratio: {}, random_chance: {}, phase: {:?}", grid_filled_ratio, random_chance, self.current_phase);
 
         match self.current_phase {
             WavePhase::Relief => {
-                // 缓和阶段，较高概率提供帮助
-                if grid_filled_ratio >= 0.30 {
-                    random_chance < 0.60 // 棋盘较满时，60% 概率
-                } else if grid_filled_ratio >= 0.40 {
-                    random_chance < 0.80 // 棋盘较满时，90% 概率
-                } else if grid_filled_ratio >= 0.50 {
-                    random_chance < 0.95 // 棋盘较满时，90% 概率
-                } else {
-                    false
-                }
+                if grid_filled_ratio >= 0.30 { random_chance < 0.70 } 
+                else if grid_filled_ratio >= 0.35 { random_chance < 0.80 } 
+                else if grid_filled_ratio >= 0.45 { random_chance < 0.99 } 
+                else { false }
             }
             WavePhase::Accumulation => {
-                // 积累阶段，根据棋盘填充度调整概率
-                if grid_filled_ratio >= 0.30 {
-                    random_chance < 0.50 // 棋盘较满时，40% 概率
-                } else if grid_filled_ratio >= 0.40 {
-                    random_chance < 0.70 // 棋盘较满时，70% 概率
-                } else if grid_filled_ratio >= 0.50 {
-                    random_chance < 0.85 // 棋盘较满时，90% 概率
-                } else {
-                    false
-                }
+                if grid_filled_ratio >= 0.30 { random_chance < 0.70 } 
+                else if grid_filled_ratio >= 0.40 { random_chance < 0.85 } 
+                else if grid_filled_ratio >= 0.50 { random_chance < 0.95 } 
+                else { false }
             }
-            WavePhase::ChallengeActive(_) => {
-                // 挑战阶段，通常不提供直接帮助，除非特殊情况
-                // 为了"极限翻盘"的惊喜感，可以给一个非常小的概率、
-                if grid_filled_ratio >= 0.45 {
-                    random_chance < 0.60 // 50% 的微小概率
-                } else if grid_filled_ratio >= 0.60 { // 例如棋盘极度满了
-                    random_chance < 0.85 // 60% 的微小概率
-                } else {
-                    false
-                }
+            WavePhase::ChallengeActive(_) => { // 现在只有 BlockFlood
+                if grid_filled_ratio >= 0.45 { random_chance < 0.80 } 
+                else if grid_filled_ratio >= 0.60 { random_chance < 0.95 } 
+                else { false }
+            }
+        }
+    }
+
+    /// 根据当前阶段和棋盘困难度分数，决定是否应该提供"有用"的方块
+    /// difficulty_score: 0.0-1.0 之间的值，越高表示越困难
+    pub fn should_offer_helpful_block_v2(&self, difficulty_score: f32) -> bool {
+        let random_chance = rand::gen_range(0.0, 1.0) as f32;
+        log_info!("should_offer_helpful_block_v2: difficulty_score: {:.3}, random_chance: {:.3}, phase: {:?}", difficulty_score, random_chance, self.current_phase);
+
+        match self.current_phase {
+            WavePhase::Relief => {
+                // 缓和阶段：更容易获得帮助，降低阈值
+                if difficulty_score >= 0.5 { random_chance < 0.95 }      // 从0.7降到0.5
+                else if difficulty_score >= 0.35 { random_chance < 0.80 } // 从0.5降到0.35
+                else if difficulty_score >= 0.2 { random_chance < 0.60 }  // 从0.3降到0.2
+                else if difficulty_score >= 0.1 { random_chance < 0.35 }  // 新增档位
+                else { random_chance < 0.15 }  // 从0.2降到0.15
+            }
+            WavePhase::Accumulation => {
+                // 积累阶段：适中的帮助，也降低阈值
+                if difficulty_score >= 0.6 { random_chance < 0.90 }      // 从0.8降到0.6
+                else if difficulty_score >= 0.45 { random_chance < 0.70 } // 从0.6降到0.45
+                else if difficulty_score >= 0.3 { random_chance < 0.50 }  // 从0.4降到0.3
+                else if difficulty_score >= 0.15 { random_chance < 0.30 } // 从0.25降到0.15
+                else if difficulty_score >= 0.05 { random_chance < 0.10 } // 新增档位
+                else { false }  // 容易时不帮助
+            }
+            WavePhase::ChallengeActive(_) => { 
+                // 挑战阶段：较少的帮助，但也适当降低阈值
+                if difficulty_score >= 0.7 { random_chance < 0.80 }      // 从0.85降到0.7
+                else if difficulty_score >= 0.55 { random_chance < 0.50 } // 从0.7降到0.55
+                else if difficulty_score >= 0.4 { random_chance < 0.25 }  // 从0.5降到0.4
+                else if difficulty_score >= 0.25 { random_chance < 0.10 } // 新增档位
+                else { false }  // 不太困难时不帮助
             }
         }
     }

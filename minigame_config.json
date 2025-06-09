@@ -1,0 +1,13 @@
+{
+    "projectID": "block_blast_rust",
+    "tapID": 5099774,
+    "title": "俄罗斯方块爆破",
+    "outDirectory": "web",
+    "description": "一款创新的方块消除游戏，将经典俄罗斯方块玩法逆向化，玩家需要将方块拖放到网格中，填满行或列即可消除。游戏支持简单和普通两种难度模式，可调节方块生成概率，提供流畅的游戏体验。",
+    "tags": ["方块消除", "休闲", "益智", "Rust", "WebGL"],
+    "versionName": "1.0.0",
+    "icon": ["taptap_asset/icon.png"],
+    "banner": ["taptap_asset/banner.jpg"],
+    "screenshots": ["taptap_asset/launch.jpg", "taptap_asset/screenshot1.jpg", "taptap_asset/screenshot2.jpg"],
+    "screenOrientation": "portrait"
+}

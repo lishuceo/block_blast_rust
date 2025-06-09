@@ -259,4 +259,136 @@ pub fn draw_rounded_rectangle_3d(x: f32, y: f32, width: f32, height: f32, radius
     
     // 绘制底部阴影
     draw_rounded_rectangle_lines(x, y + depth, width, height, radius, depth, dark_color);
+}
+
+// 绘制垂直渐变背景（从上到下）
+pub fn draw_vertical_gradient(x: f32, y: f32, width: f32, height: f32, top_color: Color, bottom_color: Color) {
+    let steps = 50; // 渐变步数，越多越平滑
+    let step_height = height / steps as f32;
+    
+    for i in 0..steps {
+        let t = i as f32 / (steps - 1) as f32; // 0.0 到 1.0 的插值因子
+        
+        // 线性插值计算当前颜色
+        let current_color = Color::new(
+            top_color.r + (bottom_color.r - top_color.r) * t,
+            top_color.g + (bottom_color.g - top_color.g) * t,
+            top_color.b + (bottom_color.b - top_color.b) * t,
+            top_color.a + (bottom_color.a - top_color.a) * t,
+        );
+        
+        // 绘制当前条带
+        draw_rectangle(
+            x,
+            y + i as f32 * step_height,
+            width,
+            step_height + 1.0, // +1 避免条带之间出现缝隙
+            current_color,
+        );
+    }
+}
+
+// 绘制水平渐变背景（从左到右）
+pub fn draw_horizontal_gradient(x: f32, y: f32, width: f32, height: f32, left_color: Color, right_color: Color) {
+    let steps = 50;
+    let step_width = width / steps as f32;
+    
+    for i in 0..steps {
+        let t = i as f32 / (steps - 1) as f32;
+        
+        let current_color = Color::new(
+            left_color.r + (right_color.r - left_color.r) * t,
+            left_color.g + (right_color.g - left_color.g) * t,
+            left_color.b + (right_color.b - left_color.b) * t,
+            left_color.a + (right_color.a - left_color.a) * t,
+        );
+        
+        draw_rectangle(
+            x + i as f32 * step_width,
+            y,
+            step_width + 1.0,
+            height,
+            current_color,
+        );
+    }
+}
+
+// 绘制径向渐变（从中心向外）
+pub fn draw_radial_gradient(center_x: f32, center_y: f32, radius: f32, center_color: Color, edge_color: Color) {
+    let steps = 30;
+    
+    // 从外向内绘制，避免覆盖问题
+    for i in (0..steps).rev() {
+        let t = i as f32 / (steps - 1) as f32;
+        let current_radius = radius * t;
+        
+        let current_color = Color::new(
+            center_color.r + (edge_color.r - center_color.r) * (1.0 - t),
+            center_color.g + (edge_color.g - center_color.g) * (1.0 - t),
+            center_color.b + (edge_color.b - center_color.b) * (1.0 - t),
+            center_color.a + (edge_color.a - center_color.a) * (1.0 - t),
+        );
+        
+        draw_circle(center_x, center_y, current_radius, current_color);
+    }
+}
+
+// 绘制角度渐变（对角线渐变）
+pub fn draw_diagonal_gradient(x: f32, y: f32, width: f32, height: f32, 
+                            top_left_color: Color, bottom_right_color: Color) {
+    // 使用三角形实现平滑的对角渐变
+    let vertices = vec![
+        Vertex {
+            position: Vec3::new(x, y, 0.0),
+            uv: Vec2::new(0.0, 0.0),
+            color: [
+                (top_left_color.r * 255.0) as u8,
+                (top_left_color.g * 255.0) as u8,
+                (top_left_color.b * 255.0) as u8,
+                (top_left_color.a * 255.0) as u8,
+            ],
+            normal: Vec4::new(0.0, 0.0, 1.0, 0.0),
+        },
+        Vertex {
+            position: Vec3::new(x + width, y, 0.0),
+            uv: Vec2::new(1.0, 0.0),
+            color: [
+                ((top_left_color.r + bottom_right_color.r) / 2.0 * 255.0) as u8,
+                ((top_left_color.g + bottom_right_color.g) / 2.0 * 255.0) as u8,
+                ((top_left_color.b + bottom_right_color.b) / 2.0 * 255.0) as u8,
+                ((top_left_color.a + bottom_right_color.a) / 2.0 * 255.0) as u8,
+            ],
+            normal: Vec4::new(0.0, 0.0, 1.0, 0.0),
+        },
+        Vertex {
+            position: Vec3::new(x + width, y + height, 0.0),
+            uv: Vec2::new(1.0, 1.0),
+            color: [
+                (bottom_right_color.r * 255.0) as u8,
+                (bottom_right_color.g * 255.0) as u8,
+                (bottom_right_color.b * 255.0) as u8,
+                (bottom_right_color.a * 255.0) as u8,
+            ],
+            normal: Vec4::new(0.0, 0.0, 1.0, 0.0),
+        },
+        Vertex {
+            position: Vec3::new(x, y + height, 0.0),
+            uv: Vec2::new(0.0, 1.0),
+            color: [
+                ((top_left_color.r + bottom_right_color.r) / 2.0 * 255.0) as u8,
+                ((top_left_color.g + bottom_right_color.g) / 2.0 * 255.0) as u8,
+                ((top_left_color.b + bottom_right_color.b) / 2.0 * 255.0) as u8,
+                ((top_left_color.a + bottom_right_color.a) / 2.0 * 255.0) as u8,
+            ],
+            normal: Vec4::new(0.0, 0.0, 1.0, 0.0),
+        },
+    ];
+    
+    let indices = vec![0, 1, 2, 0, 2, 3];
+    
+    draw_mesh(&Mesh {
+        vertices,
+        indices,
+        texture: None,
+    });
 } 
